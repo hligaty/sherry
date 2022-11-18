@@ -1,6 +1,5 @@
-package com.example.reference;
+package io.github.hligaty.util;
 
-import java.io.Serializable;
 import java.lang.ref.WeakReference;
 import java.util.Objects;
 import java.util.WeakHashMap;
@@ -8,23 +7,26 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * WeakHashMap Key
- * 
+ * Recreatable key objects.
+ * With recreatable key objects,
+ * the automatic removal of WeakHashMap entries whose keys have been discarded may prove to be confusing,
+ * but WeakKey will not.
+ *
+ * @param <K> the type of keys maintained
  * @author hligaty
- * @param <K> Entry.Key Type
+ * @see java.util.WeakHashMap
  */
-public class WeakKey<K> implements Serializable {
+public class WeakKey<K> {
     private static final WeakHashMap<WeakKey<?>, WeakReference<WeakKey<?>>> cache = new WeakHashMap<>();
     private static final ReadWriteLock cacheLock = new ReentrantReadWriteLock();
     private static final WeakHashMap<Thread, WeakKey<?>> shadowCache = new WeakHashMap<>();
     private static final ReadWriteLock shadowCacheLock = new ReentrantReadWriteLock();
-    private static final long serialVersionUID = 1L;
-
+    
     private K key;
 
     private WeakKey() {
     }
-
+    
     @SuppressWarnings("unchecked")
     public static <T> WeakKey<T> wrap(T key) {
         WeakKey<T> shadow = (WeakKey<T>) getShadow();
@@ -32,8 +34,8 @@ public class WeakKey<K> implements Serializable {
         cacheLock.readLock().lock();
         try {
             WeakReference<WeakKey<?>> ref = cache.get(shadow);
-            shadow.key = null;
             if (ref != null) {
+                shadow.key = null;
                 return (WeakKey<T>) ref.get();
             }
         } finally {
