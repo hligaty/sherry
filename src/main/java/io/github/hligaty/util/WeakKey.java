@@ -24,8 +24,7 @@ public class WeakKey<K> {
     
     private K key;
 
-    private WeakKey() {
-    }
+    private WeakKey() {}
     
     @SuppressWarnings("unchecked")
     public static <T> WeakKey<T> wrap(T key) {
