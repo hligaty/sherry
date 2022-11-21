@@ -7,6 +7,9 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
+ * Object lock
+ *
+ * @param <K> the type of keys maintained
  * @author hligaty
  */
 public class SherryLock<K> extends SLock<K, ReentrantLock> implements Lock {

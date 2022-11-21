@@ -6,10 +6,13 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
+ * Object readWriteLock
+ *
+ * @param <K> the type of keys maintained
  * @author hligaty
  */
 public class SherryReadWriteLock<K> extends SLock<K, ReadWriteLock> implements ReadWriteLock {
-    
+
     private SherryReadWriteLock(K key) {
         super(new SherryReadWriteLockKey<>(key));
     }

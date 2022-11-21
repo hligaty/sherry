@@ -21,11 +21,12 @@ public class WeakKey<K> {
     private static final ReadWriteLock cacheLock = new ReentrantReadWriteLock();
     private static final WeakHashMap<Thread, WeakKey<?>> shadowCache = new WeakHashMap<>();
     private static final ReadWriteLock shadowCacheLock = new ReentrantReadWriteLock();
-    
+
     private K key;
 
-    private WeakKey() {}
-    
+    private WeakKey() {
+    }
+
     @SuppressWarnings("unchecked")
     public static <T> WeakKey<T> wrap(T key) {
         WeakKey<T> shadow = (WeakKey<T>) getShadow();

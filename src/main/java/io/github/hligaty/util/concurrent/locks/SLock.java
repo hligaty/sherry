@@ -5,13 +5,20 @@ import io.github.hligaty.util.WeakKey;
 import java.util.Objects;
 
 /**
+ * Object lock.
+ * Using equals() as the condition of variable equality, memory security
+ *
+ * @param <K> the type of keys maintained
+ * @param <T> the type of lock maintained
  * @author hligaty
+ * @see SherryLock
+ * @see SherryReadWriteLock
  */
 public abstract class SLock<K, T> {
     private final LockKey key;
-    protected volatile T lock;
-    
-    protected final WeakKey<SLock<K, T>> weakKey;
+    private volatile T lock;
+
+    private final WeakKey<SLock<K, T>> weakKey;
 
     protected SLock(LockKey key) {
         this.key = key;
@@ -31,7 +38,7 @@ public abstract class SLock<K, T> {
     }
 
     abstract T newLock();
-    
+
     interface LockKey {
 
         boolean equals(Object o);
