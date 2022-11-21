@@ -14,12 +14,13 @@ public class BaseTest {
     
     @SneakyThrows
     protected void gc(int time) {
-        WeakHashMap<WeakKey<BaseTest>, Object> map = new WeakHashMap<>();
+        WeakSafeContext<BaseTest> context = new WeakSafeContext<>();
+        WeakHashMap<WeakSafeContext.WeakObject<BaseTest>, Object> map = new WeakHashMap<>();
         BaseTest test = new BaseTest();
-        map.put(WeakKey.wrap(test), new Object());
+        map.put(context.wrap(test), new Object());
         System.gc();
         Thread.sleep(time);
-        Assertions.assertNull(map.get(WeakKey.wrap(test)), "jvm no gc");
+        Assertions.assertNull(map.get(context.wrap(test)), "jvm no gc");
     }
 
     @SneakyThrows

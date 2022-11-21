@@ -2,9 +2,8 @@
 
 ## Functions
 
-- [WeakKey](src/main/java/io/github/hligaty/util/WeakKey.java)
-- [SherryLock](src/main/java/io/github/hligaty/util/concurrent/locks/SherryLock.java)
-- [SherryReadWriteLock](src/main/java/io/github/hligaty/util/concurrent/locks/SherryReadWriteLock.java)
+- [WeakSafeContext](src/main/java/io/github/hligaty/util/WeakSafeContext.java)
+- [InfiniteStriped](src/main/java/io/github/hligaty/util/InfiniteStriped.java)
 
 ## License
 

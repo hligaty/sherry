@@ -1,6 +1,5 @@
-package io.github.hligaty.util.concurrent.locks;
+package io.github.hligaty.util;
 
-import io.github.hligaty.util.BaseTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -9,18 +8,19 @@ import java.util.concurrent.locks.Lock;
 /**
  * @author hligaty
  */
-class SherryLockTest extends BaseTest {
+class InfiniteStripedTest extends BaseTest {
 
     @Test
     public void testLock() throws InterruptedException {
+        InfiniteStriped<Object, Lock> infiniteStriped = InfiniteStriped.lock();
         new Thread(() -> {
-            Lock lock = SherryLock.of("lock");
+            Lock lock = infiniteStriped.get("lock");
             lock.lock();
             sleep(Long.MAX_VALUE);
         }).start();
         Thread thread = new Thread(() -> {
             sleep(5000);
-            Lock lock = SherryLock.of("lock");
+            Lock lock = infiniteStriped.get("lock");
             Assertions.assertFalse(lock.tryLock());
         });
         thread.start();
