@@ -2,7 +2,7 @@
 
 ## Functions
 
-- [WeakSafeContext](src/main/java/io/github/hligaty/util/WeakSafeContext.java)
+- [Interner](src/main/java/io/github/hligaty/util/WeakSafeContext.java)
 - [InfiniteStriped](src/main/java/io/github/hligaty/util/InfiniteStriped.java)
 
 ## License
