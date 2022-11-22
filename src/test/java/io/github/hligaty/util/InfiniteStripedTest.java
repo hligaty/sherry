@@ -12,7 +12,7 @@ class InfiniteStripedTest extends BaseTest {
 
     @Test
     public void testLock() throws InterruptedException {
-        InfiniteStriped<Object, Lock> infiniteStriped = InfiniteStriped.lock();
+        InfiniteStriped<Lock> infiniteStriped = InfiniteStriped.lock();
         new Thread(() -> {
             Lock lock = infiniteStriped.get("lock");
             lock.lock();

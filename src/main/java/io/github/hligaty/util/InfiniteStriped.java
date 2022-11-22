@@ -8,50 +8,49 @@ import java.util.concurrent.locks.*;
  * Generate a lock for each object equal to equals () separately, and the memory is safe.
  * The usage is similar to Guava Striped, but objects with the same hashcode will not compete for the same lock.
  *
- * @param <K> the type of keys maintained
  * @param <T> the type of lock maintained
  * @author hligaty
  */
-public abstract class InfiniteStriped<K, T> {
+public abstract class InfiniteStriped<T> {
     
     private InfiniteStriped() {
     }
     
-    public abstract T get(K key);
+    public abstract T get(Object key);
 
-    public static <K> InfiniteStriped<K, Lock> lock() {
-        WeakSafeContext<SLock<K, Lock>> context = new WeakSafeContext<>();
-        return new InfiniteStriped<K, Lock>() {
+    public static InfiniteStriped<Lock> lock() {
+        WeakSafeContext<SLock<Lock>> context = new WeakSafeContext<>();
+        return new InfiniteStriped<Lock>() {
             @Override
-            public Lock get(K key) {
-                return new SherryWeakSafeLock<>(key, context);
+            public Lock get(Object key) {
+                return new SherryWeakSafeLock(key, context);
             }
         };
     }
 
-    public static <K> InfiniteStriped<K, ReadWriteLock> readWriteLock() {
-        WeakSafeContext<SLock<K, ReadWriteLock>> context = new WeakSafeContext<>();
-        return new InfiniteStriped<K, ReadWriteLock>() {
+    public static InfiniteStriped<ReadWriteLock> readWriteLock() {
+        WeakSafeContext<SLock<ReadWriteLock>> context = new WeakSafeContext<>();
+        return new InfiniteStriped<ReadWriteLock>() {
             @Override
-            public ReadWriteLock get(K key) {
-                return new SherryWeakSafeReadWriteLock<>(key, context);
+            public ReadWriteLock get(Object key) {
+                return new SherryWeakSafeReadWriteLock(key, context);
             }
         };
     }
 
-    private static abstract class SLock<K, T> {
-        private final K key;
+    private static abstract class SLock<T> {
+        private final Object key;
         private volatile T lock;
 
-        private final WeakSafeContext.WeakObject<SLock<K, T>> weakObject;
+        private final WeakSafeContext.WeakObject<SLock<T>> weakObject;
 
-        protected SLock(K key, WeakSafeContext<SLock<K, T>> context) {
+        protected SLock(Object key, WeakSafeContext<SLock<T>> context) {
             this.key = key;
             this.weakObject = context.wrap(this);
         }
 
         public T getLock() {
-            SLock<K, T> sLock = weakObject.unwrap();
+            SLock<T> sLock = weakObject.unwrap();
             if (sLock.lock == null) {
                 synchronized (this) {
                     if (sLock.lock == null) {
@@ -68,7 +67,7 @@ public abstract class InfiniteStriped<K, T> {
         public boolean equals(Object o) {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
-            SLock<?, ?> sLock = (SLock<?, ?>) o;
+            SLock<?> sLock = (SLock<?>) o;
             return Objects.equals(key, sLock.key);
         }
 
@@ -78,9 +77,9 @@ public abstract class InfiniteStriped<K, T> {
         }
     }
 
-    private static class SherryWeakSafeLock<K> extends SLock<K, Lock> implements Lock {
+    private static class SherryWeakSafeLock extends SLock<Lock> implements Lock {
 
-        SherryWeakSafeLock(K key, WeakSafeContext<SLock<K, Lock>> context) {
+        SherryWeakSafeLock(Object key, WeakSafeContext<SLock<Lock>> context) {
             super(key, context);
         }
 
@@ -120,9 +119,9 @@ public abstract class InfiniteStriped<K, T> {
         }
     }
 
-    private static class SherryWeakSafeReadWriteLock<K> extends SLock<K, ReadWriteLock> implements ReadWriteLock {
+    private static class SherryWeakSafeReadWriteLock extends SLock<ReadWriteLock> implements ReadWriteLock {
 
-        public SherryWeakSafeReadWriteLock(K key, WeakSafeContext<SLock<K, ReadWriteLock>> context) {
+        public SherryWeakSafeReadWriteLock(Object key, WeakSafeContext<SLock<ReadWriteLock>> context) {
             super(key, context);
         }
 
