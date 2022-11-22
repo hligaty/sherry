@@ -11,46 +11,32 @@ import java.util.concurrent.locks.*;
  * @param <T> the type of lock maintained
  * @author hligaty
  */
-public abstract class InfiniteStriped<T> {
-    
-    private InfiniteStriped() {
-    }
-    
-    public abstract T get(Object key);
+public interface InfiniteStriped<T> {
 
-    public static InfiniteStriped<Lock> lock() {
-        WeakSafeContext<SLock<Lock>> context = new WeakSafeContext<>();
-        return new InfiniteStriped<Lock>() {
-            @Override
-            public Lock get(Object key) {
-                return new SherryWeakSafeLock(key, context);
-            }
-        };
+    T get(Object key);
+
+    static InfiniteStriped<Lock> lock() {
+        Interner<SLock<Lock>> context = new Interner<>();
+        return key -> new SherryWeakSafeLock(key, context);
     }
 
-    public static InfiniteStriped<ReadWriteLock> readWriteLock() {
-        WeakSafeContext<SLock<ReadWriteLock>> context = new WeakSafeContext<>();
-        return new InfiniteStriped<ReadWriteLock>() {
-            @Override
-            public ReadWriteLock get(Object key) {
-                return new SherryWeakSafeReadWriteLock(key, context);
-            }
-        };
+    static InfiniteStriped<ReadWriteLock> readWriteLock() {
+        Interner<SLock<ReadWriteLock>> context = new Interner<>();
+        return key -> new SherryWeakSafeReadWriteLock(key, context);
     }
 
-    private static abstract class SLock<T> {
+    abstract class SLock<T> {
         private final Object key;
         private volatile T lock;
 
-        private final WeakSafeContext.WeakObject<SLock<T>> weakObject;
+        private final SLock<T> sLock;
 
-        protected SLock(Object key, WeakSafeContext<SLock<T>> context) {
+        protected SLock(Object key, Interner<SLock<T>> interner) {
             this.key = key;
-            this.weakObject = context.wrap(this);
+            this.sLock = interner.intern(this);
         }
 
         public T getLock() {
-            SLock<T> sLock = weakObject.unwrap();
             if (sLock.lock == null) {
                 synchronized (this) {
                     if (sLock.lock == null) {
@@ -77,9 +63,9 @@ public abstract class InfiniteStriped<T> {
         }
     }
 
-    private static class SherryWeakSafeLock extends SLock<Lock> implements Lock {
+    class SherryWeakSafeLock extends SLock<Lock> implements Lock {
 
-        SherryWeakSafeLock(Object key, WeakSafeContext<SLock<Lock>> context) {
+        SherryWeakSafeLock(Object key, Interner<SLock<Lock>> context) {
             super(key, context);
         }
 
@@ -119,9 +105,9 @@ public abstract class InfiniteStriped<T> {
         }
     }
 
-    private static class SherryWeakSafeReadWriteLock extends SLock<ReadWriteLock> implements ReadWriteLock {
+    class SherryWeakSafeReadWriteLock extends SLock<ReadWriteLock> implements ReadWriteLock {
 
-        public SherryWeakSafeReadWriteLock(Object key, WeakSafeContext<SLock<ReadWriteLock>> context) {
+        public SherryWeakSafeReadWriteLock(Object key, Interner<SLock<ReadWriteLock>> context) {
             super(key, context);
         }
 
