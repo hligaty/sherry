@@ -31,7 +31,7 @@ public class BaseTest {
         Thread.sleep(timeout);
     }
     
-    @Data
+    // @Data
     @AllArgsConstructor
     static class Username {
         private String username;
