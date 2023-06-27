@@ -7,6 +7,7 @@ import lombok.Data;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.UUID;
 import java.util.concurrent.ConcurrentMap;
 
 /**
@@ -45,7 +46,7 @@ class GuavaTest extends BaseTest {
 
         @Override
         public String toString() {
-            return String.valueOf(super.hashCode());
+            return UUID.randomUUID().toString();
         }
     }
 }

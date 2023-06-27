@@ -3,7 +3,6 @@ package io.github.hligaty.util;
 import lombok.AllArgsConstructor;
 import lombok.SneakyThrows;
 
-import java.lang.ref.WeakReference;
 import java.util.WeakHashMap;
 
 /**
@@ -13,10 +12,10 @@ public class BaseTest {
     
     @SneakyThrows
     protected void gc() {
-        WeakHashMap<WeakReference<Username>, Object> map = new WeakHashMap<>();
+        WeakHashMap<Username, Object> map = new WeakHashMap<>();
         int size = 0;
         while (map.size() == size) {
-            map.put(new WeakReference<>(new Username("sherry")), new Object());
+            map.put(new Username("sherry"), new Object());
             size++;
         }
     }
