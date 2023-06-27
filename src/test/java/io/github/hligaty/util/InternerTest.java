@@ -14,14 +14,13 @@ import java.util.WeakHashMap;
 class InternerTest extends BaseTest {
 
     @Test
-    public void testWeakKey() throws InterruptedException {
+    public void testWeakKey() {
         Interner<List<Integer>> interner = new Interner<>();
         WeakHashMap<List<Integer>, Object> map = new WeakHashMap<>();
         map.put(interner.intern(Arrays.asList(705, 630, 818)), new Object());
         List<Integer> weakObject = interner.intern(Collections.singletonList(705630818));
         map.put(weakObject, new Object());
-        System.gc();
-        Thread.sleep(2000);
+        gc();
         Assertions.assertNull(map.get(interner.intern(Arrays.asList(705, 630, 818))));
         Assertions.assertNotNull(map.get(interner.intern(Collections.singletonList(705630818))));
     }
@@ -46,7 +45,7 @@ class InternerTest extends BaseTest {
                 }
             }
         }).start();
-        gc(2000);
+        gc();
         thread.join();
     }
 }

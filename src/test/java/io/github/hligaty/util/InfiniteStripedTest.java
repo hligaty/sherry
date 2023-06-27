@@ -14,17 +14,17 @@ class InfiniteStripedTest extends BaseTest {
     public void testLock() throws InterruptedException {
         InfiniteStriped<Lock> infiniteStriped = InfiniteStriped.lock();
         new Thread(() -> {
-            Lock lock = infiniteStriped.get("lock");
+            Lock lock = infiniteStriped.get("haibara");
             lock.lock();
             sleep(Long.MAX_VALUE);
         }).start();
         Thread thread = new Thread(() -> {
             sleep(5000);
-            Lock lock = infiniteStriped.get("lock");
+            Lock lock = infiniteStriped.get("haibara");
             Assertions.assertFalse(lock.tryLock());
         });
         thread.start();
-        gc(3000);
+        gc();
         thread.join();
     }
 }

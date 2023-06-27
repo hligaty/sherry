@@ -17,25 +17,28 @@ class GuavaTest extends BaseTest {
     @Test
     public void testGuavaInterner() {
         Interner<ID> interner = Interners.newWeakInterner();
-        ID id = interner.intern(new ID("1"));
+        ID id = interner.intern(new ID("shiho"));
         String toString = id.toString();
-        gc(2000);
-        Assertions.assertSame(id, interner.intern(new ID("1")));
+        gc();
+        Assertions.assertSame(id, interner.intern(new ID("shiho")));
         id = null;
-        gc(2000);
-        Assertions.assertNotEquals(toString, interner.intern(new ID("1")).toString());
+        gc();
+        Assertions.assertNotEquals(toString, interner.intern(new ID("shiho")).toString());
     }
-    
+
     @Test
     public void testGuavaWeakHashMap() {
         Interner<ID> interner = Interners.newWeakInterner();
         ConcurrentMap<ID, Object> map = new MapMaker().concurrencyLevel(1).weakKeys().makeMap();
         // new/threadLocal/objectPool
-        map.put(interner.intern(new ID("1")), new Object());
-        gc(2000);
-        Assertions.assertNull(map.get(interner.intern(new ID("1"))));
+        map.put(interner.intern(new ID("shiho")), new Object());
+        ID sherry = new ID("haibara");
+        map.put(interner.intern(sherry), new Object());
+        gc();
+        Assertions.assertNull(map.get(interner.intern(new ID("shiho"))));
+        Assertions.assertNotNull(map.get(interner.intern(new ID("haibara"))));
     }
-    
+
     @Data
     static class ID {
         private final String id;

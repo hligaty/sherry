@@ -1,10 +1,9 @@
 package io.github.hligaty.util;
 
 import lombok.AllArgsConstructor;
-import lombok.Data;
 import lombok.SneakyThrows;
-import org.junit.jupiter.api.Assertions;
 
+import java.lang.ref.WeakReference;
 import java.util.WeakHashMap;
 
 /**
@@ -13,17 +12,13 @@ import java.util.WeakHashMap;
 public class BaseTest {
     
     @SneakyThrows
-    protected void gc(int time) {
-        Interner<Username> context = new Interner<>();
-        WeakHashMap<Username, Object> map = new WeakHashMap<>();
-        Username username = new Username("sherry");
-        String s = username.toString();
-        map.put(context.intern(username), new Object());
-        username = null;
-        System.gc();
-        Thread.sleep(time);
-        username = new Username("sherry");
-        Assertions.assertEquals(username.toString(), s, "jvm no gc");
+    protected void gc() {
+        WeakHashMap<WeakReference<Username>, Object> map = new WeakHashMap<>();
+        int size = 0;
+        while (map.size() == size) {
+            map.put(new WeakReference<>(new Username("sherry")), new Object());
+            size++;
+        }
     }
 
     @SneakyThrows
@@ -31,7 +26,6 @@ public class BaseTest {
         Thread.sleep(timeout);
     }
     
-    // @Data
     @AllArgsConstructor
     static class Username {
         private String username;
