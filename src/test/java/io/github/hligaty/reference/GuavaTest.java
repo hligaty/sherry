@@ -1,4 +1,4 @@
-package io.github.hligaty.util;
+package io.github.hligaty.reference;
 
 import com.google.common.collect.Interner;
 import com.google.common.collect.Interners;

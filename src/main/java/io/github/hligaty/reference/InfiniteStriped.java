@@ -1,4 +1,4 @@
-package io.github.hligaty.util;
+package io.github.hligaty.reference;
 
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;

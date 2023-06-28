@@ -1,4 +1,4 @@
-package io.github.hligaty.util;
+package io.github.hligaty.reference;
 
 import lombok.AllArgsConstructor;
 import lombok.SneakyThrows;

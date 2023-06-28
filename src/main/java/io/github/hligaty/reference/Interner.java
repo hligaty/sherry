@@ -1,4 +1,4 @@
-package io.github.hligaty.util;
+package io.github.hligaty.reference;
 
 import java.lang.ref.WeakReference;
 import java.util.WeakHashMap;
