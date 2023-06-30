@@ -1,8 +1,5 @@
 package io.github.hligaty.reference;
 
-import lombok.AllArgsConstructor;
-import lombok.SneakyThrows;
-
 import java.util.WeakHashMap;
 
 /**
@@ -10,23 +7,21 @@ import java.util.WeakHashMap;
  */
 public class BaseTest {
     
-    @SneakyThrows
     protected void gc() {
-        WeakHashMap<Username, Object> map = new WeakHashMap<>();
+        WeakHashMap<Object, Object> map = new WeakHashMap<>();
         int size = 0;
         while (map.size() == size) {
-            map.put(new Username("sherry"), new Object());
+            map.put(new Object(), new Object());
             size++;
         }
     }
 
-    @SneakyThrows
     protected void sleep(long timeout) {
-        Thread.sleep(timeout);
+        try {
+            Thread.sleep(timeout);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
     }
     
-    @AllArgsConstructor
-    static class Username {
-        private String username;
-    }
 }

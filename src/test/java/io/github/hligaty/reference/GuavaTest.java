@@ -3,7 +3,6 @@ package io.github.hligaty.reference;
 import com.google.common.collect.Interner;
 import com.google.common.collect.Interners;
 import com.google.common.collect.MapMaker;
-import lombok.Data;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -31,7 +30,6 @@ class GuavaTest extends BaseTest {
     public void testGuavaWeakHashMap() {
         Interner<ID> interner = Interners.newWeakInterner();
         ConcurrentMap<ID, Object> map = new MapMaker().concurrencyLevel(1).weakKeys().makeMap();
-        // new/threadLocal/objectPool
         map.put(interner.intern(new ID("shiho")), new Object());
         ID sherry = new ID("haibara");
         map.put(interner.intern(sherry), new Object());
@@ -40,10 +38,7 @@ class GuavaTest extends BaseTest {
         Assertions.assertNotNull(map.get(interner.intern(new ID("haibara"))));
     }
 
-    @Data
-    static class ID {
-        private final String id;
-
+    record ID(String id) {
         @Override
         public String toString() {
             return UUID.randomUUID().toString();

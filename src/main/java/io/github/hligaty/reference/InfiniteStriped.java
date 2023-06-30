@@ -5,16 +5,16 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.*;
 
 /**
- * Generate a lock for each object equal to equals () separately, and the memory is safe.
- * The usage is similar to Guava Striped, but objects with the same hashcode will not compete for the same lock.
+ * 分别为每个等于equals（）的对象生成一个锁，并且内存是安全的。其用法类似于Guava Striped，但具有相同哈希代码的对象不会争夺相同的锁
  *
- * @param <T> the type of lock maintained
+ * @param <T> 维护的锁类型
  * @author hligaty
+ * @date 2023/06/30
  */
 public interface InfiniteStriped<T> {
 
     T get(Object key);
-
+    
     static InfiniteStriped<Lock> lock() {
         Interner<SLock<Lock>> context = new Interner<>();
         return key -> new SherryWeakSafeLock(key, context);

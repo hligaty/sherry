@@ -6,12 +6,9 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * Generate recreatable key objects.
- * With recreatable key objects,
- * the automatic removal of WeakHashMap entries whose keys have been discarded may prove to be confusing,
- * but WeakKey will not.
+ * 生成可重新创建的对象。对于可重新创建的对象，解决自动删除其已被丢弃的WeakHashMap条目可能会令人困惑的问题
  *
- * @param <K> the type of keys maintained
+ * @param <K> 维护的对象类型
  * @author hligaty
  * @see java.util.WeakHashMap
  */

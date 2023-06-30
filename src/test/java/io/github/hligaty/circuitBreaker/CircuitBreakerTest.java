@@ -1,21 +1,21 @@
 package io.github.hligaty.circuitBreaker;
 
-import lombok.SneakyThrows;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 
 class CircuitBreakerTest {
 
     @Test
-    @SneakyThrows
-    public void test() {
+    public void test() throws InterruptedException {
         AtomicInteger count = new AtomicInteger();
-        CircuitBreaker circuitBreaker = new CircuitBreaker(5, 100);
+        CircuitBreaker circuitBreaker = new CircuitBreaker(5, Duration.ofMillis(100), Duration.ofMillis(100));
         for (int i = 0; i < 5; i++) {
             circuitBreaker.executeSupplier(count::incrementAndGet);
         }
+        // circuitBreaker closed
         for (int i = 0; i < 5; i++) {
             Exception exception = null;
             try {
@@ -27,8 +27,11 @@ class CircuitBreakerTest {
             }
             Assertions.assertNotNull(exception);
         }
+        // circuitBreaker open
         Thread.sleep(101L);
+        // circuitBreaker half open
         Integer temp = circuitBreaker.executeSupplier(count::incrementAndGet);
+        // circuitBreaker closed
         Assertions.assertEquals(6, temp);
         for (int i = 0; i < 5; i++) {
             try {
@@ -38,6 +41,7 @@ class CircuitBreakerTest {
             } catch (Exception ignored) {
             }
         }
+        // circuitBreaker open
         CircuitBreakerException exception = null;
         try {
             circuitBreaker.executeSupplier(count::incrementAndGet);
@@ -46,5 +50,5 @@ class CircuitBreakerTest {
         }
         Assertions.assertNotNull(exception);
     }
-
+    
 }
