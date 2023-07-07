@@ -8,18 +8,19 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 /**
  * 生成可重新创建的对象。对于可重新创建的对象，解决自动删除其已被丢弃的WeakHashMap条目可能会令人困惑的问题
  *
- * @param <K> 维护的对象类型
+ * @param <E> 维护的对象类型
  * @author hligaty
+ * @date 2022/11/21
  * @see java.util.WeakHashMap
  */
-public class Interner<K> {
-    private final WeakHashMap<K, WeakReference<K>> cache = new WeakHashMap<>();
+public class Interner<E> {
+    private final WeakHashMap<E, WeakReference<E>> cache = new WeakHashMap<>();
     private final ReadWriteLock cacheLock = new ReentrantReadWriteLock();
     
-    public K intern(K key) {
+    public E intern(E sample) {
         cacheLock.readLock().lock();
         try {
-            WeakReference<K> ref = cache.get(key);
+            WeakReference<E> ref = cache.get(sample);
             if (ref != null) {
                 return ref.get();
             }
@@ -28,11 +29,11 @@ public class Interner<K> {
         }
         cacheLock.writeLock().lock();
         try {
-            WeakReference<K> newRef = cache.get(key);
+            WeakReference<E> newRef = cache.get(sample);
             if (newRef == null) {
-                newRef = new WeakReference<>(key);
-                cache.put(key, newRef);
-                return key;
+                newRef = new WeakReference<>(sample);
+                cache.put(sample, newRef);
+                return sample;
             }
             return newRef.get();
         } finally {

@@ -1,20 +1,24 @@
 package io.github.hligaty.reference;
 
+import javax.annotation.Nonnull;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.*;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * 分别为每个等于equals（）的对象生成一个锁，并且内存是安全的。其用法类似于Guava Striped，但具有相同哈希代码的对象不会争夺相同的锁
- *
  * @param <T> 维护的锁类型
  * @author hligaty
- * @date 2023/06/30
+ * @date 2022/11/21
  */
 public interface InfiniteStriped<T> {
 
     T get(Object key);
-    
+
     static InfiniteStriped<Lock> lock() {
         Interner<SLock<Lock>> context = new Interner<>();
         return key -> new SherryWeakSafeLock(key, context);
@@ -90,7 +94,7 @@ public interface InfiniteStriped<T> {
         }
 
         @Override
-        public boolean tryLock(long time, TimeUnit unit) throws InterruptedException {
+        public boolean tryLock(long time, @Nonnull TimeUnit unit) throws InterruptedException {
             return getLock().tryLock(time, unit);
         }
 
