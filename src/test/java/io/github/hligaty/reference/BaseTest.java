@@ -10,9 +10,8 @@ public class BaseTest {
     protected void gc() {
         WeakHashMap<Object, Object> map = new WeakHashMap<>();
         int size = 0;
-        while (map.size() == size) {
+        while (map.size() == size++) {
             map.put(new Object(), new Object());
-            size++;
         }
     }
 
@@ -23,5 +22,7 @@ public class BaseTest {
             throw new RuntimeException(e);
         }
     }
-    
+
+    record User(String name) {
+    }
 }

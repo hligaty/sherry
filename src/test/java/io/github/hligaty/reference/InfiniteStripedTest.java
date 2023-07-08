@@ -11,20 +11,20 @@ import java.util.concurrent.locks.Lock;
 class InfiniteStripedTest extends BaseTest {
 
     @Test
-    public void testLock() throws InterruptedException {
+    public void testLock() {
         InfiniteStriped<Lock> infiniteStriped = InfiniteStriped.lock();
-        new Thread(() -> {
-            Lock lock = infiniteStriped.get("haibara");
+        Thread thread = Thread.ofVirtual().start(() -> {
+            Lock lock = infiniteStriped.get(new User("haibara"));
             lock.lock();
             sleep(Long.MAX_VALUE);
-        }).start();
-        Thread thread = new Thread(() -> {
-            sleep(5000);
-            Lock lock = infiniteStriped.get("haibara");
-            Assertions.assertFalse(lock.tryLock());
         });
-        thread.start();
+        while (true) {
+            if (thread.isAlive()) {
+                break;
+            }
+        }
         gc();
-        thread.join();
+        Lock lock = infiniteStriped.get(new User("haibara"));
+        Assertions.assertFalse(lock.tryLock());
     }
 }
