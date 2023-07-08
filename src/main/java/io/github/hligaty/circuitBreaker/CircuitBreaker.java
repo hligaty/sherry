@@ -24,15 +24,6 @@ public class CircuitBreaker {
      */
     private final long waitDurationInOpenState;
     /**
-     * 函数执行器
-     */
-    private final ExecutorService executor =
-            Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("circuit-breaker").factory());
-    /**
-     * 函数执行超时时间
-     */
-    private final long waitDurationInExecute;
-    /**
      * 失败计数
      */
     private final LongAdder failureCount = new LongAdder();
@@ -46,10 +37,9 @@ public class CircuitBreaker {
      */
     private long endTime = -1L;
 
-    public CircuitBreaker(long failureThreshold, Duration waitDurationInOpenState, Duration waitDurationInExecute) {
+    public CircuitBreaker(long failureThreshold, Duration waitDurationInOpenState) {
         this.failureThreshold = failureThreshold;
         this.waitDurationInOpenState = waitDurationInOpenState.toMillis();
-        this.waitDurationInExecute = waitDurationInExecute.toMillis();
     }
 
     /**
@@ -62,8 +52,7 @@ public class CircuitBreaker {
     public <V> V executeSupplier(Callable<V> callable) {
         tryAcquire();
         try {
-            Future<V> future = executor.submit(callable);
-            V v = future.get(waitDurationInExecute, TimeUnit.MILLISECONDS);
+            V v = callable.call();
             successCallback();
             return v;
         } catch (Exception e) {

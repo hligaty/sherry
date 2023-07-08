@@ -11,7 +11,7 @@ class CircuitBreakerTest {
     @Test
     public void test() throws InterruptedException {
         AtomicInteger count = new AtomicInteger();
-        CircuitBreaker circuitBreaker = new CircuitBreaker(5, Duration.ofMillis(100), Duration.ofMillis(100));
+        CircuitBreaker circuitBreaker = new CircuitBreaker(5, Duration.ofMillis(100));
         for (int i = 0; i < 5; i++) {
             circuitBreaker.executeSupplier(count::incrementAndGet);
         }
