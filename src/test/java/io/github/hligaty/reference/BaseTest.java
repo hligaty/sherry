@@ -6,7 +6,7 @@ import java.util.WeakHashMap;
  * @author hligaty
  */
 public class BaseTest {
-    
+
     protected void gc() {
         WeakHashMap<Object, Object> map = new WeakHashMap<>();
         int size = 0;
