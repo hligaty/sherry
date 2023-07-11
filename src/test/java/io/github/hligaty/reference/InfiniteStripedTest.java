@@ -13,11 +13,12 @@ class InfiniteStripedTest extends BaseTest {
     @Test
     public void testLock() {
         InfiniteStriped<Lock> infiniteStriped = InfiniteStriped.lock();
-        Thread thread = Thread.startVirtualThread(() -> {
+        Thread thread = new Thread(() -> {
             Lock lock = infiniteStriped.get(new User("haibara"));
             lock.lock();
             sleep(Long.MAX_VALUE);
         });
+        thread.start();
         while (true) {
             if (thread.isAlive()) {
                 break;

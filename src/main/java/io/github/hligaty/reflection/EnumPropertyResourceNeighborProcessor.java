@@ -1,18 +1,23 @@
 package io.github.hligaty.reflection;
 
 import com.google.auto.service.AutoService;
+import com.google.common.io.Resources;
 
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.Filer;
 import javax.annotation.processing.Processor;
 import javax.annotation.processing.RoundEnvironment;
+import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 import javax.tools.StandardLocation;
 import java.io.IOException;
 import java.io.Writer;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -25,12 +30,17 @@ import java.util.Set;
 @AutoService(Processor.class)
 public class EnumPropertyResourceNeighborProcessor extends AbstractProcessor {
     static final String NEIGHBOR_CLASS_NAME = "EnumPropertyNeighbor";
-    static final String ENUM_PROPERTY_CLASS_RESOURCE_LOCATION = "META-INF/sherry/" + EnumPropertyResourceNeighborProcessor.class.getName() + ".imports";
-    private final HashSet<String> classSet = HashSet.newHashSet(0);
+    private static final String ENUM_PROPERTY_CLASS_RESOURCE_LOCATION = "META-INF/sherry/" + EnumPropertyResourceNeighborProcessor.class.getName() + ".imports";
+    private final Set<String> classSet = new HashSet<>();
 
     @Override
     public Set<String> getSupportedAnnotationTypes() {
         return Set.of(EnumProperty.class.getName());
+    }
+
+    @Override
+    public SourceVersion getSupportedSourceVersion() {
+        return SourceVersion.RELEASE_17;
     }
 
     @Override
@@ -44,7 +54,7 @@ public class EnumPropertyResourceNeighborProcessor extends AbstractProcessor {
                 e.printStackTrace();
             }
         } else {
-            HashSet<String> packageSet = HashSet.newHashSet(0);
+            Set<String> packageSet = new HashSet<>();
             for (Element element : roundEnv.getElementsAnnotatedWith(EnumProperty.class)) {
                 if (!(element.getEnclosingElement() instanceof TypeElement typeElement)) {
                     return true;
@@ -92,4 +102,10 @@ public class EnumPropertyResourceNeighborProcessor extends AbstractProcessor {
     record ClassSymbol(String packageName, String flatName) {
         
     }
+    
+    static List<String> getClassnames() throws IOException {
+        URL resource = Resources.getResource(ENUM_PROPERTY_CLASS_RESOURCE_LOCATION);
+        return Resources.readLines(resource, StandardCharsets.UTF_8);
+    }
+    
 }
