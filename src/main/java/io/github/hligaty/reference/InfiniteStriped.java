@@ -11,6 +11,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * 分别为每个等于equals（）的对象生成一个锁，并且内存是安全的。其用法类似于Guava Striped，但具有相同哈希代码的对象不会争夺相同的锁
+ *
  * @param <T> 维护的锁类型
  * @author hligaty
  * @date 2022/11/21

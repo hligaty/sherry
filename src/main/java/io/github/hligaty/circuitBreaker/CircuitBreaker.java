@@ -2,15 +2,12 @@ package io.github.hligaty.circuitBreaker;
 
 import java.time.Duration;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
  * 简单的断路器
+ *
  * @author hligaty
  * @date 2023/06/28
  */
@@ -90,7 +87,7 @@ public class CircuitBreaker {
         }
         failureCount.increment();
         if (failureCount.sum() >= failureThreshold
-                && changeStatus(CircuitBreakerStatus.CLOSED, CircuitBreakerStatus.OPEN)) {
+            && changeStatus(CircuitBreakerStatus.CLOSED, CircuitBreakerStatus.OPEN)) {
             endTime = System.currentTimeMillis() + waitDurationInOpenState;
         }
     }
