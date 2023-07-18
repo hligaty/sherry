@@ -11,6 +11,7 @@ import java.util.Objects;
 
 /**
  * 使用序列化框架提供的入口增加枚举名字字段, 优点是灵活简单, 缺点是反射慢一些
+ *
  * @author hligaty
  * @date 2023/07/06
  */

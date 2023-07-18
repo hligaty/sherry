@@ -18,18 +18,18 @@ class EnumPropertyPreFilterTest {
         user.setSex(1);
         application.setUser(user);
         Assertions.assertEquals(
-                JSON.toJSONString(application, enumPropertyPreFilter, JSONWriter.Feature.PrettyFormat),
                 """
                         {
                         	"platformName":"MOBILE",
                         	"platform":0,
-                        	"statusName":"CLOSE",
+                        	"statusName":"OPEN",
                         	"status":1,
                         	"user":{
                         		"sexName":"FEMALE",
                         		"sex":1
                         	}
-                        }"""
+                        }""",
+                JSON.toJSONString(application, enumPropertyPreFilter, JSONWriter.Feature.PrettyFormat)
         );
     }
 

@@ -1,8 +1,6 @@
 package io.github.hligaty.reflection;
 
 import javassist.CannotCompileException;
-import javassist.ClassPool;
-import javassist.CtClass;
 import javassist.NotFoundException;
 
 import java.io.IOException;
@@ -11,6 +9,12 @@ import java.lang.instrument.Instrumentation;
 import java.security.ProtectionDomain;
 import java.util.List;
 
+/**
+ * 等同 EnumPropertyProcessor, 使用 JavaAgent 方式
+ *
+ * @author hligaty
+ * @date 2023/07/06
+ */
 public class EnumPropertyAgent {
     private static List<String> classnames;
 
@@ -25,18 +29,10 @@ public class EnumPropertyAgent {
                                 ProtectionDomain protectionDomain, byte[] classfileBuffer) {
             className = className.replace("/", ".");
             if (classnames.contains(className)) {
-                ClassPool classPool = ClassPool.getDefault();
-                CtClass ctClass = null;
                 try {
-                    ctClass = classPool.get(className);
-                    EnumPropertyProcessor.doProcess(ctClass);
-                    return ctClass.toBytecode();
+                    return EnumPropertyProcessor.doProcess(className, true);
                 } catch (NotFoundException | CannotCompileException | IOException | ClassNotFoundException e) {
                     e.printStackTrace();
-                } finally {
-                    if (ctClass != null) {
-                        ctClass.detach();
-                    }
                 }
             }
             return null;

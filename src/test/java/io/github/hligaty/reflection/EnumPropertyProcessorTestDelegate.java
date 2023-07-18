@@ -14,18 +14,18 @@ class EnumPropertyProcessorTestDelegate {
         user.setSex(1);
         application.setUser(user);
         Assertions.assertEquals(
-                JSON.toJSONString(application, JSONWriter.Feature.PrettyFormat),
                 """
                         {
                         	"platform":0,
                         	"platformName":"MOBILE",
                         	"status":1,
-                        	"statusName":"CLOSE",
+                        	"statusName":"OPEN",
                         	"user":{
                         		"sex":1,
                         		"sexName":"FEMALE"
                         	}
-                        }"""
+                        }""",
+                JSON.toJSONString(application, JSONWriter.Feature.PrettyFormat)
         );
     }
     

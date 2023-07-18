@@ -3,6 +3,7 @@ package io.github.hligaty.reflection;
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Strings;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotNull;
 import javassist.CannotCompileException;
 import javassist.ClassPool;
 import javassist.CtClass;
@@ -41,48 +42,73 @@ public class EnumPropertyProcessor {
      */
     private static final String SWAGGER_SCHEMA_CLASS_NAME = "io.swagger.v3.oas.annotations.media.Schema";
     private static final String SWAGGER_SCHEMA_DESCRIPTION_METHOD_NAME = "description";
+    /**
+     * Jakarta Validation NotNull
+     */
+    private static final String JAKARTA_VALIDATION_NOTNULL_CLASS_NAME = "jakarta.validation.constraints.NotNull";
+    private static final String JAKARTA_VALIDATION_NOTNULL_CLASS_MESSAGE_METHOD_NAME = "message";
+    private static final String JAKARTA_VALIDATION_NOTNULL_CLASS_MESSAGE_METHOD_DEFAULT_VALUE = "{jakarta.validation.constraints.NotNull.message}";
 
     public void process() throws NotFoundException, ClassNotFoundException, CannotCompileException, IOException {
         List<String> classnames = EnumPropertyResourceNeighborProcessor.getClassnames();
-        ClassPool classPool = ClassPool.getDefault();
         for (String classname : classnames) {
-            CtClass ctClass = classPool.get(classname);
-            try {
-                doProcess(ctClass);
-                Class<?> neighborClass = Class.forName(ctClass.getPackageName() + "." + NEIGHBOR_CLASS_NAME);
-                ctClass.toClass(neighborClass);
-            } finally {
-                ctClass.detach();
-            }
+            doProcess(classname, false);
         }
     }
 
-    static void doProcess(CtClass ctClass) throws ClassNotFoundException, CannotCompileException {
-        for (CtField ctField : ctClass.getDeclaredFields()) {
-            EnumProperty enumProperty = (EnumProperty) ctField.getAnnotation(EnumProperty.class);
-            if (enumProperty != null) {
-                Class<? extends Enum<?>> enumClass = enumProperty.value();
-                generateSwaggerSchemaDescription(ctClass, ctField, enumClass);
-                generateEnumNameGetter(ctClass, ctField, enumClass);
+    static byte[] doProcess(String classname, boolean needBytecode) throws ClassNotFoundException, CannotCompileException, NotFoundException, IOException {
+        ClassPool classPool = ClassPool.getDefault();
+        CtClass ctClass = classPool.get(classname);
+        try {
+            for (CtField ctField : ctClass.getDeclaredFields()) {
+                EnumProperty enumProperty = (EnumProperty) ctField.getAnnotation(EnumProperty.class);
+                if (enumProperty != null) {
+                    Class<? extends Enum<?>> enumClass = enumProperty.value();
+                    // description sample: EnumSimpleName(ordinal0-name0, ordinal1-name1, ...)
+                    String description = enumClass.getSimpleName() + Stream.of(enumClass.getEnumConstants())
+                            .map(enumConstant -> enumConstant.ordinal() + "-" + enumConstant.name())
+                            .collect(Collectors.joining(", ", "(", ")"));
+                    generateEnumNameGetter(ctClass, ctField, enumClass);
+                    redefineSwaggerSchemaDescription(ctClass, ctField, description);
+                    retransformJakartaValidation(ctClass, ctField, description);
+                }
             }
+            if (needBytecode) {
+                return ctClass.toBytecode();
+            }
+            Class<?> neighborClass = Class.forName(ctClass.getPackageName() + "." + NEIGHBOR_CLASS_NAME);
+            ctClass.toClass(neighborClass);
+            return null;
+        } finally {
+            ctClass.detach();
         }
     }
 
-    private static void generateSwaggerSchemaDescription(CtClass ctClass, CtField ctField, Class<? extends Enum<?>> enumClass) throws ClassNotFoundException {
+    private static void redefineSwaggerSchemaDescription(CtClass ctClass, CtField ctField, String description) throws ClassNotFoundException {
         if (ctField.hasAnnotation(SWAGGER_SCHEMA_CLASS_NAME)
             && ctField.getAnnotation(Schema.class) instanceof Schema schema
             && Strings.isNullOrEmpty(schema.description())) {
-            // description sample: EnumSimpleName(ordinal0-name0, ordinal1-name1, ...)
-            String description = enumClass.getSimpleName() + Stream.of(enumClass.getEnumConstants())
-                    .map(enumConstant -> enumConstant.ordinal() + "-" + enumConstant.name())
-                    .collect(Collectors.joining(", ", "(", ")"));
             ClassFile classFile = ctClass.getClassFile();
             ConstPool constPool = classFile.getConstPool();
-            AnnotationsAttribute attribute = new AnnotationsAttribute(constPool, AnnotationsAttribute.visibleTag);
+
+            AnnotationsAttribute attribute = (AnnotationsAttribute) ctField.getFieldInfo().getAttribute(AnnotationsAttribute.visibleTag);
             Annotation annotation = new Annotation(SWAGGER_SCHEMA_CLASS_NAME, constPool);
             annotation.addMemberValue(SWAGGER_SCHEMA_DESCRIPTION_METHOD_NAME, new StringMemberValue(description, constPool));
             attribute.addAnnotation(annotation);
-            ctField.getFieldInfo().addAttribute(attribute);
+        }
+    }
+
+    private static void retransformJakartaValidation(CtClass ctClass, CtField ctField, String description) throws ClassNotFoundException {
+        if (ctField.hasAnnotation(JAKARTA_VALIDATION_NOTNULL_CLASS_NAME)
+            && ctField.getAnnotation(NotNull.class) instanceof NotNull notNull
+            && JAKARTA_VALIDATION_NOTNULL_CLASS_MESSAGE_METHOD_DEFAULT_VALUE.equals(notNull.message())) {
+            ClassFile classFile = ctClass.getClassFile();
+            ConstPool constPool = classFile.getConstPool();
+
+            AnnotationsAttribute attribute = (AnnotationsAttribute) ctField.getFieldInfo().getAttribute(AnnotationsAttribute.visibleTag);
+            Annotation annotation = attribute.getAnnotation(JAKARTA_VALIDATION_NOTNULL_CLASS_NAME);
+            annotation.addMemberValue(JAKARTA_VALIDATION_NOTNULL_CLASS_MESSAGE_METHOD_NAME, new StringMemberValue(description + " must not be null", constPool));
+            attribute.addAnnotation(annotation);
         }
     }
 
@@ -113,6 +139,6 @@ public class EnumPropertyProcessor {
                 return constant.name();
             }
         }
-        throw new IllegalArgumentException("enum ordinal not present, field: " + fieldName + ", value:" + value);
+        throw new IllegalArgumentException("enum ordinal not present, field: " + fieldName + ", value: " + value);
     }
 }

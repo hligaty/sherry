@@ -1,23 +1,26 @@
 package io.github.hligaty.reflection;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 
 public class Application {
 
-    @EnumProperty(Status.class)
+    @NotNull
     @Schema
+    @EnumProperty(Status.class)
     public Integer status;
 
     @EnumProperty(Platform.class)
     @Schema
     private Integer platform;
 
-    private User user;
+    private @Valid User user;
 
     public static class User {
-        
-        @EnumProperty(Sex.class)
+
         @Schema
+        @EnumProperty(Sex.class)
         private Integer sex;
 
         public Integer getSex() {
@@ -27,6 +30,7 @@ public class Application {
         public void setSex(Integer sex) {
             this.sex = sex;
         }
+        
     }
 
     public Integer getStatus() {
@@ -52,4 +56,5 @@ public class Application {
     public void setUser(User user) {
         this.user = user;
     }
+    
 }
