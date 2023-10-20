@@ -1,6 +1,6 @@
 # Sherry
 
-Guava 等开源代码的简单实现（原理不一定相同）
+一些代码片段
 
 ## 功能
 
@@ -11,12 +11,3 @@ Guava 等开源代码的简单实现（原理不一定相同）
 - [EnumPropertyPreFilter](src/main/java/io/github/hligaty/reflection/EnumPropertyPreFilter.java) 序列化时为被标注为枚举的字段生成枚举名字字段（FastJson2 实现）
 - [EnumPropertyProcessor](src/main/java/io/github/hligaty/reflection/EnumPropertyProcessor.java) 序列化时为被标注为枚举的字段生成枚举名字字段（Annotation Processor 和 Javassit 实现），以及为 Swagger Schema 注解生成 description 和 JakartaValidation NotNull 生成 message
 - [EnumPropertyAgent](src/main/java/io/github/hligaty/reflection/EnumPropertyAgent.java) 效果同 EnumPropertyProcessor，JavaAgent 方式
-
-## 路线图
-
-- 按照访问时间过期的缓存
-- EventLoop
-
-## License
-
-The Sherry is released under version 2.0 of the [Apache License](https://www.apache.org/licenses/LICENSE-2.0).

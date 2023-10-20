@@ -1,5 +1,6 @@
 package io.github.hligaty.reference;
 
+import io.github.hligaty.BaseTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

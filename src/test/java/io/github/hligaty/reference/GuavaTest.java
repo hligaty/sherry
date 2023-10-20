@@ -3,6 +3,7 @@ package io.github.hligaty.reference;
 import com.google.common.collect.Interner;
 import com.google.common.collect.Interners;
 import com.google.common.collect.MapMaker;
+import io.github.hligaty.BaseTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

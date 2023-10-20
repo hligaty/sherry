@@ -1,4 +1,4 @@
-package io.github.hligaty.reference;
+package io.github.hligaty;
 
 import java.util.WeakHashMap;
 
@@ -7,7 +7,7 @@ import java.util.WeakHashMap;
  */
 public class BaseTest {
 
-    protected void gc() {
+    protected static void gc() {
         WeakHashMap<Object, Object> map = new WeakHashMap<>();
         int size = 0;
         while (map.size() == size++) {
@@ -15,14 +15,12 @@ public class BaseTest {
         }
     }
 
-    protected void sleep(long timeout) {
+    protected static void sleep(long timeout) {
         try {
             Thread.sleep(timeout);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
     }
-
-    record User(String name) {
-    }
+    
 }
