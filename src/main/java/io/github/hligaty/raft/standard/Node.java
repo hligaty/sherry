@@ -1,13 +1,16 @@
 package io.github.hligaty.raft.standard;
 
-import io.github.hligaty.raft.standard.storage.LogEntry;
+import io.github.hligaty.raft.standard.config.Configuration;
+import io.github.hligaty.raft.standard.rpc.packet.LogEntryReq;
+import io.github.hligaty.raft.standard.rpc.packet.VoteReq;
 
 public interface Node {
     
-    void setConfig(Config config);
+    void setConfiguration(Configuration configuration);
     
-    boolean voteFor(PeerNode peerNode);
+    void start();
     
-    void appendEntry(LogEntry logEntry);
+    boolean voteFor(VoteReq voteReq);
     
+    boolean appendEntry(LogEntryReq logEntryReq);
 }
