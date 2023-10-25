@@ -2,7 +2,7 @@ package io.github.hligaty.raft.standard;
 
 import io.github.hligaty.BaseTest;
 import io.github.hligaty.raft.standard.config.Configuration;
-import io.github.hligaty.raft.standard.config.Endpoint;
+import io.github.hligaty.raft.standard.util.Endpoint;
 import io.github.hligaty.raft.standard.core.DefaultNode;
 import org.junit.jupiter.api.Test;
 
@@ -16,7 +16,7 @@ class NodeTest extends BaseTest {
     public void test() {
         int numsOfServer = 3;
         List<Endpoint> allEndpoints = new Random().ints(numsOfServer, 10000, 11000)
-                .mapToObj(port -> new Endpoint("selfAddress", port))
+                .mapToObj(port -> new Endpoint("localhost", port))
                 .toList();
         for (int i = 0; i < allEndpoints.size(); i++) {
             List<Endpoint> endpoints = new ArrayList<>(allEndpoints);

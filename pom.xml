@@ -11,7 +11,6 @@
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <slf4j.version>1.7.36</slf4j.version>
         <disruptor.version>4.0.0</disruptor.version>
         <sofa-rpc.version>5.11.1</sofa-rpc.version>
@@ -94,6 +93,11 @@
             <groupId>com.alipay.sofa</groupId>
             <artifactId>bolt</artifactId>
             <version>1.6.6</version>
+        </dependency>
+        <dependency>
+            <groupId>com.alipay.sofa</groupId>
+            <artifactId>hessian</artifactId>
+            <version>4.0.4</version>
         </dependency>
         <dependency>
             <groupId>org.rocksdb</groupId>

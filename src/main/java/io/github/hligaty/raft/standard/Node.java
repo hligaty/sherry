@@ -1,8 +1,9 @@
 package io.github.hligaty.raft.standard;
 
 import io.github.hligaty.raft.standard.config.Configuration;
-import io.github.hligaty.raft.standard.rpc.packet.LogEntryReq;
-import io.github.hligaty.raft.standard.rpc.packet.VoteReq;
+import io.github.hligaty.raft.standard.rpc.packet.AppendEntryRequest;
+import io.github.hligaty.raft.standard.rpc.packet.RequestVoteRequest;
+import io.github.hligaty.raft.standard.rpc.packet.RequestVoteResponse;
 
 public interface Node {
     
@@ -10,7 +11,7 @@ public interface Node {
     
     void start();
     
-    boolean voteFor(VoteReq voteReq);
+    RequestVoteResponse handleVoteRequest(RequestVoteRequest requestVoteRequest);
     
-    boolean appendEntry(LogEntryReq logEntryReq);
+    boolean appendEntry(AppendEntryRequest appendEntryRequest);
 }

@@ -1,4 +1,8 @@
 package io.github.hligaty.raft.standard.storage;
 
-public class LogEntry {
+import java.io.Serializable;
+
+public record LogEntry(
+        LogId logId
+) implements Serializable {
 }
