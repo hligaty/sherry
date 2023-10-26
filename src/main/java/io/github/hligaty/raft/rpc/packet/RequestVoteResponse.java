@@ -1,4 +1,4 @@
-package io.github.hligaty.raft.standard.rpc.packet;
+package io.github.hligaty.raft.rpc.packet;
 
 import java.io.Serializable;
 

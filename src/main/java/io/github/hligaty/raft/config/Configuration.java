@@ -1,6 +1,6 @@
-package io.github.hligaty.raft.standard.config;
+package io.github.hligaty.raft.config;
 
-import io.github.hligaty.raft.standard.util.Endpoint;
+import io.github.hligaty.raft.util.Endpoint;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -10,11 +10,20 @@ public class Configuration {
     private Endpoint endpoint;
     
     private final List<Endpoint> otherEndpoints = new ArrayList<>();
-    
+
+    /**
+     * 选举超时时间, 超过这个时间且没有收到来自领导者的消息则变成候选者
+     */
     private int electionTimeoutMs = 1000;
     
+    /**
+     * 最大随机选举延迟时间, 利用随机来避免死锁
+     */
     private int maxElectionDelayMs = 1000;
-    
+
+    /**
+     * RPC 客户端连接超时时间
+     */
     private int rpcConnectTimeoutMs = 1000;
     
     private int rpcRequestTimeoutMs = 5000;

@@ -1,9 +1,9 @@
-package io.github.hligaty.raft.standard;
+package io.github.hligaty.raft;
 
 import io.github.hligaty.BaseTest;
-import io.github.hligaty.raft.standard.config.Configuration;
-import io.github.hligaty.raft.standard.util.Endpoint;
-import io.github.hligaty.raft.standard.core.DefaultNode;
+import io.github.hligaty.raft.config.Configuration;
+import io.github.hligaty.raft.core.DefaultNode;
+import io.github.hligaty.raft.util.Endpoint;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -26,7 +26,7 @@ class NodeTest extends BaseTest {
                     .addPeerNodes(endpoints);
             Node node = new DefaultNode();
             node.setConfiguration(configuration);
-            node.start();
+            node.startup();
         }
         sleep();
     }

@@ -1,4 +1,4 @@
-package io.github.hligaty.raft.standard.storage;
+package io.github.hligaty.raft.storage;
 
 import javax.annotation.Nonnull;
 import java.io.Serializable;

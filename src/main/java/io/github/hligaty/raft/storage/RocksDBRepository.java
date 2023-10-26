@@ -1,4 +1,4 @@
-package io.github.hligaty.raft.standard.storage;
+package io.github.hligaty.raft.storage;
 
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;

@@ -1,4 +1,4 @@
-package io.github.hligaty.raft.standard.rpc;
+package io.github.hligaty.raft.rpc;
 
 public interface RpcService {
 

@@ -1,6 +1,6 @@
-package io.github.hligaty.raft.standard.rpc;
+package io.github.hligaty.raft.rpc;
 
-import io.github.hligaty.raft.standard.util.Endpoint;
+import io.github.hligaty.raft.util.Endpoint;
 
 import java.io.Serializable;
 

@@ -1,4 +1,4 @@
-package io.github.hligaty.raft.standard.core;
+package io.github.hligaty.raft.core;
 
 public enum State {
     LEADER,

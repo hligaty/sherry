@@ -1,4 +1,4 @@
-package io.github.hligaty.raft.standard.storage;
+package io.github.hligaty.raft.storage;
 
 import java.io.Closeable;
 
