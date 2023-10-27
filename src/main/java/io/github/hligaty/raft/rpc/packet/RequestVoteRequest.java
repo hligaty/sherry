@@ -8,6 +8,7 @@ public record RequestVoteRequest(
         Endpoint endpoint,
         long term,
         long lastLogIndex,
-        long lastLogTerm
+        long lastLogTerm,
+        boolean preVote
 ) implements Serializable {
 }

@@ -42,9 +42,9 @@ public class SofaBoltService implements RpcService {
     public Object handleRequest(Object request) {
         return switch (request) {
             case RequestVoteRequest requestVoteRequest:
-                yield node.handleVoteRequest(requestVoteRequest);
+                yield node.handleRequestVoteRequest(requestVoteRequest);
             case AppendEntriesRequest appendEntriesRequest:
-                yield node.handleAppendEntries(appendEntriesRequest);
+                yield node.handleAppendEntriesRequest(appendEntriesRequest);
             default:
                 throw new IllegalStateException("Unexpected value: " + request);
         };

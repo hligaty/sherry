@@ -8,15 +8,14 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
+import java.util.stream.Stream;
 
 class NodeTest extends BaseTest {
 
     @Test
     public void test() {
-        int numsOfServer = 3;
-        List<Endpoint> allEndpoints = new Random().ints(numsOfServer, 10000, 11000)
-                .mapToObj(port -> new Endpoint("localhost", port))
+        List<Endpoint> allEndpoints = Stream.of(4869, 4870, 4871)
+                .map(port -> new Endpoint("localhost", port))
                 .toList();
         for (int i = 0; i < allEndpoints.size(); i++) {
             List<Endpoint> endpoints = new ArrayList<>(allEndpoints);

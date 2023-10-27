@@ -1,8 +1,11 @@
 package io.github.hligaty.raft.storage;
 
+import io.github.hligaty.raft.config.Configuration;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
+
+import java.util.List;
 
 public class RocksDBRepository implements LogRepository {
 
@@ -12,18 +15,17 @@ public class RocksDBRepository implements LogRepository {
 
     private final RocksDB rocksDB;
 
-    public RocksDBRepository() {
+    public RocksDBRepository(Configuration configuration) {
         Options options = new Options().setCreateIfMissing(true);
         try {
-            rocksDB = RocksDB.open(options, "./rocksdb-data/");
+            rocksDB = RocksDB.open(options, "./rocksdb-data-" + configuration.getEndpoint().port() + "/");
         } catch (RocksDBException e) {
             throw new StoreException(e);
         }
     }
 
-    @Override
-    public boolean append(LogEntry logEntry) {
-        return false;
+    public void appendEntries(List<LogEntry> logEntries) {
+        
     }
 
     @Override
