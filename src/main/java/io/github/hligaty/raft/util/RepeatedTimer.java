@@ -20,7 +20,7 @@ public abstract class RepeatedTimer {
     private static final Logger LOG = LoggerFactory.getLogger(NamedThreadFactory.class);
 
     private final ScheduledExecutorService scheduledExecutorService;
-    
+
     private final Lock lock = new ReentrantLock();
 
     private boolean stopped = true;
@@ -89,5 +89,5 @@ public abstract class RepeatedTimer {
             }
         }
     }
-    
+
 }

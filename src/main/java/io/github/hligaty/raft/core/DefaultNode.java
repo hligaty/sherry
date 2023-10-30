@@ -18,6 +18,7 @@ import io.github.hligaty.raft.util.RepeatedTimer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Serializable;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -33,26 +34,60 @@ public class DefaultNode implements Node {
 
     private static final Logger LOG = LoggerFactory.getLogger(DefaultNode.class);
 
+    /**
+     * 配置信息
+     */
     private Configuration configuration;
 
+    /**
+     * RPC 服务
+     */
     private RpcService rpcService;
-
-    private State state;
-
-    private final Lock lock;
-
-    private long currTerm;
-
-    private Endpoint votedEndpoint;
-
-    private long lastLeaderTimestamp;
 
     private final ExecutorService virtualThreadPerTaskExecutor;
 
+    /**
+     * 日志存储
+     */
     private LogRepository logRepository;
+    
+    //----------------------------------------------------------------------------------------------------
 
+    /**
+     * 全局锁, 控制 Raft 需要的状态等数据的变动. 两个分割线内的数据需要通过锁变更
+     */
+    private final Lock lock;
+    
+    /**
+     * 状态
+     */
+    private State state;
+
+    /**
+     * 当前任期
+     */
+    private long currTerm;
+
+    /**
+     * 当前任期的投票
+     */
+    private Endpoint votedEndpoint;
+
+    //----------------------------------------------------------------------------------------------------
+
+    /**
+     * 领导者最后一个消息的时间戳
+     */
+    private long lastLeaderTimestamp;
+
+    /**
+     * 选举计时器, 检测到超时后开始预投票. 当前节点是跟随者时开启
+     */
     private RepeatedTimer electionTimer;
 
+    /**
+     * 心跳计时器, 向所有节点发送心跳, 表明当前节点还是领导者. 当前节点是领导者时开启
+     */
     private RepeatedTimer heartbeatTimer;
 
     public DefaultNode() {
@@ -81,7 +116,7 @@ public class DefaultNode implements Node {
 
             @Override
             protected void onTrigger() {
-                electionSelf(true);
+                handleElectionTimeout(true);
             }
         };
         heartbeatTimer = new RepeatedTimer("heartbeatTimer") {
@@ -100,32 +135,67 @@ public class DefaultNode implements Node {
     }
 
     @Override
-    public RequestVoteResponse handleRequestVoteRequest(RequestVoteRequest request) {
+    public <T extends Serializable> void apply(T data) {
         lock.lock();
         try {
-            if (
-                    currTerm <= request.term() // 比自己的任期小, 拒绝
-                    // 领导者最后一条消息就在刚刚不久前, 拒绝投票. 防止非对称网络分区中的跟随者任期不断增加导致领导者变更的问题
-                    || System.currentTimeMillis() - lastLeaderTimestamp >= configuration.getElectionTimeoutMs()
-                    || votedEndpoint != null // 当前任期已经投过票了
-                    || new LogId(request.lastLogIndex(), request.term()).compareTo(logRepository.getLastLogId()) < 0 // 当前节点日志超过候选者
-            ) {
-                return new RequestVoteResponse(currTerm, false);
-            }
-            if (!request.preVote()) {
-                // 赞成投票
-                state = State.FOLLOWER;
-                currTerm = request.term();
-                votedEndpoint = request.endpoint();
-                electionTimer.start(); // 开启跟随者的选举超时检测
-            }
-            return new RequestVoteResponse(currTerm, true);
+            // TODO: 2023/10/30 应用 
         } finally {
             lock.unlock();
         }
     }
 
-    @SuppressWarnings ("ConstantConditions")
+    @SuppressWarnings("ConstantConditions")
+    @Override
+    public RequestVoteResponse handleRequestVoteRequest(RequestVoteRequest request) {
+        lock.lock();
+        try {
+            boolean granted = false;
+            do {
+                if (request.term() < currTerm) { // 比自己的任期小, 拒绝
+                    LOG.info("收到投票请求, 但任期[{}]比当前节点任期[{}]小, 拒绝", request.term(), currTerm);
+                    break;
+                }
+                if (request.preVote() && isCurrentLeaderValid()) { // 预投票阶段领导者有效就拒绝. 正式投票时不判断, 因为预投票通过表示大部分节点都同意了
+                    LOG.info("收到预投票请求, 但领导者有效, 拒绝");
+                    break;
+                }
+                if (!request.preVote() && request.term() > currTerm && state != State.FOLLOWER) { // 正式投票阶段发现任期大就变更状态
+                    LOG.info("正式投票请求的任期[{}]比当前节点任期[{}]大, 更改当前节点状态为跟随者, 当前节点状态为[{}]",
+                            request.term(), currTerm, state);
+                    assert state == State.LEADER; // 一定是领导者, 因为用了全局锁, 候选者状态只在 electionSelf() 方法中
+                    state = State.FOLLOWER;
+                    currTerm = request.term();
+                    votedEndpoint = null;
+                    electionTimer.start();
+                    heartbeatTimer.stop();
+                }
+                if (!request.preVote() && votedEndpoint != null) { // 正式投票时判断是否已经投过了. 预投票只是为了判断是否可以发起正式投票, 不用记录投了谁
+                    LOG.info("任期[{}]的正式投票已经投给了[{}], 拒绝其他投票", currTerm, votedEndpoint);
+                    break;
+                }
+                /*
+                 * 候选者日志没超过当前节点日志, 拒绝
+                 * 这个是 Raft 的核心思想, 只有大多数节点复制日志成功才算成功, 因此, 基于该条件的投票机制也就能保证收到大多数票的那个节点有最新的日志
+                 */
+                if (new LogId(request.lastLogIndex(), request.term()).compareTo(logRepository.getLastLogId()) < 0) {
+                    break;
+                }
+                granted = true;
+                if (!request.preVote()) { // 正式投票阶段投票后更改状态为跟随者
+                    state = State.FOLLOWER;
+                    currTerm = request.term();
+                    votedEndpoint = request.endpoint();
+                    electionTimer.start();
+                    heartbeatTimer.stop();
+                }
+            } while (false);
+            return new RequestVoteResponse(currTerm, granted);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    @SuppressWarnings("ConstantConditions")
     @Override
     public AppendEntriesResponse handleAppendEntriesRequest(AppendEntriesRequest request) {
         lock.lock();
@@ -133,7 +203,7 @@ public class DefaultNode implements Node {
             boolean success = false;
             do {
                 if (request.term() < currTerm) {
-                    LOG.info("忽略过时的 AppendEntriesRequest, term=[{}], currTerm=[{}]", request.term(), currTerm);
+                    LOG.info("忽略过时的投票请求, term=[{}], currTerm=[{}]", request.term(), currTerm);
                     break;
                 }
                 lastLeaderTimestamp = System.currentTimeMillis();
@@ -162,29 +232,30 @@ public class DefaultNode implements Node {
         }
     }
 
-    private void electionSelf(boolean preVote) {
+    private void handleElectionTimeout(boolean preVote) {
         lock.lock();
         try {
             if (
                     state != State.FOLLOWER // 必须是跟随者才尝试变成候选者.
                     // election_timeout_ms 内没有收到领导者的消息, 才尝试变成候选者(因为心跳等消息的时间间隔远小于 election_timeout_ms)
-                    || System.currentTimeMillis() - lastLeaderTimestamp < configuration.getElectionTimeoutMs()
+                    || isCurrentLeaderValid()
             ) {
                 return;
             }
+            long term;
             if (!preVote) { // 正式投票时更改状态和当前任期的投票
-                LOG.info("投票超时, 发起预投票, 当前任期:[{}]", currTerm);
+                LOG.info("发起预投票, 当前任期:[{}]", term = ++currTerm); // 正式投票改变任期
                 state = State.CANDIDATE;
                 votedEndpoint = configuration.getEndpoint();
             } else {
-                LOG.info("投票超时, 发起正式投票, 当前任期:[{}]", currTerm);
+                LOG.info("发起正式投票, 当前任期:[{}]", term = currTerm + 1); // 预投票不改变任期, 防止对称分区任期不断增加
             }
             LongAdder voteCount = new LongAdder(); // 赞成票计数
             voteCount.increment();
             LogId lastLogId = logRepository.getLastLogId();
             RequestVoteRequest request = new RequestVoteRequest(
                     configuration.getEndpoint(),
-                    preVote ? currTerm + 1 : ++currTerm, // 预投票不改变任期, 正式投票才改变任期
+                    term,
                     lastLogId.index(),
                     lastLogId.term(),
                     preVote
@@ -195,28 +266,28 @@ public class DefaultNode implements Node {
                         RpcRequest rpcRequest = new RpcRequest(endpoint, request, configuration.getElectionTimeoutMs());
                         // 发起投票请求
                         if (rpcService.sendRequest(rpcRequest) instanceof RequestVoteResponse response) {
-                            if (response.term() > currTerm) { // 其他人的任期更高, 回退为跟随者
-                                LOG.info("其他节点[{}]任期[{}]更高, 当前节点准备回退为跟随者. 当前节点任期:[{}]", endpoint, response.term(), currTerm);
-                                voteCount.add(-mostNodes());
+                            if (response.term() > term) { // 其他人的任期更高, 回退为跟随者
+                                LOG.info("其他节点[{}]任期[{}]更高, 当前节点准备回退为跟随者. 当前节点任期:[{}]", endpoint, response.term(), term);
+                                voteCount.add(-quorum());
                             } else if (response.granted()) {
-                                LOG.info("其他节点[{}]赞同投票. 当前节点任期:[{}]", endpoint, currTerm);
+                                LOG.info("其他节点[{}]赞同投票. 当前节点任期:[{}]", endpoint, term);
                                 voteCount.increment();
                             } else {
-                                LOG.info("其他节点[{}]任期小, 但日志更多, 不投票. 当前节点任期:[{}], ", endpoint, currTerm);
+                                LOG.info("其他节点[{}]任期小, 但日志更多, 不投票. 当前节点任期:[{}], ", endpoint, term);
                             }
                         }
                     },
-                    (endpoint, throwable) -> LOG.info("请求另一个节点投票时出错. 节点:[{}]", endpoint, throwable)
+                    (endpoint, throwable) -> LOG.info("请求另一个节点投票时出错, 可能存在网络分区. 节点:[{}]", endpoint, throwable)
             );
             if (request.preVote()) { // 预投票结果判断
-                if (voteCount.sum() >= mostNodes()) {
+                if (voteCount.sum() >= quorum()) {
                     LOG.info("预投票票数[{}]超过一半节点, 开始正式投票", voteCount.sum());
                     lock.unlock();
-                    electionSelf(false);
+                    handleElectionTimeout(false);
                 } else {
                     LOG.info("预投票票数[{}]少于一半节点, 投票失败", voteCount.sum());
                 }
-            } else if (voteCount.sum() >= mostNodes()) {
+            } else if (voteCount.sum() >= quorum()) {
                 LOG.info("正式投票票数[{}]超过一半节点, 上升为领导者", voteCount.sum());
                 state = State.LEADER;
                 votedEndpoint = null;
@@ -233,8 +304,12 @@ public class DefaultNode implements Node {
         }
     }
 
-    private long mostNodes() {
+    private long quorum() {
         return (configuration.getOtherEndpoints().size() + 1) / 2;
+    }
+
+    private boolean isCurrentLeaderValid() {
+        return System.currentTimeMillis() - lastLeaderTimestamp < configuration.getElectionTimeoutMs();
     }
 
     private void heartbeat() {
@@ -251,17 +326,19 @@ public class DefaultNode implements Node {
                     endpoint -> {
                         RpcRequest rpcRequest = new RpcRequest(endpoint, request, configuration.getHeartbeatTimeoutMs());
                         if (rpcService.sendRequest(rpcRequest) instanceof AppendEntriesResponse response) {
-                            if (response.term() > currTerm) { // 其他节点的任期大, 直接下降为跟随者
-                                voteCount.add(-mostNodes());
+                            if (response.term() > currTerm) {
+                                LOG.info("心跳发现节点[{}]任期[{}]大于当前节点任期[{}], 下降为跟随者", endpoint, response.term(), currTerm);
+                                voteCount.add(quorum());
                             }
                         }
                     },
                     (endpoint, throwable) -> {
-                        LOG.info("请求另一个节点[{}]检测信号时出错, 网络分区", endpoint, throwable);
-                        voteCount.increment(); // 节点没有响应, 网络分区, 即不赞成该继续担任领导者
+                        LOG.info("心跳请求另一个节点[{}]时出错, 可能存在网络分区", endpoint, throwable);
+                        voteCount.increment();
                     }
             );
-            if (voteCount.sum() >= mostNodes()) { // 大多数节点不赞成或网络分区, 下降为跟随者
+            if (voteCount.sum() >= quorum()) { // 大多数节点不赞成或网络分区, 下降为跟随者
+                LOG.info("心跳判定当前节点从领导者下降为跟随者");
                 state = State.FOLLOWER;
                 votedEndpoint = null;
                 heartbeatTimer.stop();

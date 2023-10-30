@@ -7,8 +7,14 @@ import java.util.List;
 
 public class Configuration {
 
+    /**
+     * 当前节点地址
+     */
     private Endpoint endpoint;
-    
+
+    /**
+     * 其他节点地址
+     */
     private final List<Endpoint> otherEndpoints = new ArrayList<>();
 
     /**

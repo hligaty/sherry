@@ -6,11 +6,15 @@ import io.github.hligaty.raft.rpc.packet.AppendEntriesResponse;
 import io.github.hligaty.raft.rpc.packet.RequestVoteRequest;
 import io.github.hligaty.raft.rpc.packet.RequestVoteResponse;
 
+import java.io.Serializable;
+
 public interface Node {
     
     void setConfiguration(Configuration configuration);
     
     void startup();
+
+    <T extends Serializable> void apply(T data);
     
     RequestVoteResponse handleRequestVoteRequest(RequestVoteRequest requestVoteRequest);
     
