@@ -13,11 +13,15 @@ import io.github.hligaty.raft.config.Configuration;
 import io.github.hligaty.raft.rpc.packet.AppendEntriesRequest;
 import io.github.hligaty.raft.rpc.packet.RequestVoteRequest;
 import io.github.hligaty.raft.util.Endpoint;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 public class SofaBoltService implements RpcService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(SofaBoltService.class);
 
     private final Configuration configuration;
     private final Node node;
@@ -36,6 +40,7 @@ public class SofaBoltService implements RpcService {
         );
         rpcServer.startup();
         this.rpcClient = new RpcClient();
+        rpcClient.startup();
     }
 
     @Override

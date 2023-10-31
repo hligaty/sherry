@@ -35,7 +35,7 @@ public class RocksDBRepository implements LogRepository {
 
     @Override
     public LogId getLastLogId() {
-        return null;
+        return new LogId(0, 0);
     }
 
     @Override

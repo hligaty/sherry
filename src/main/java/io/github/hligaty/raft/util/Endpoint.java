@@ -1,7 +1,48 @@
 package io.github.hligaty.raft.util;
 
-public record Endpoint(
-        String address,
-        int port
-) {
+import java.io.Serial;
+import java.io.Serializable;
+import java.util.Objects;
+
+public final class Endpoint implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 0L;
+    private final String address;
+    private final int port;
+
+    public Endpoint(
+            String address,
+            int port
+    ) {
+        this.address = address;
+        this.port = port;
+    }
+
+    @Override
+    public String toString() {
+        return String.format("address=%s, port=%s", address, port);
+    }
+
+    public String address() {
+        return address;
+    }
+
+    public int port() {
+        return port;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == this) return true;
+        if (obj == null || obj.getClass() != this.getClass()) return false;
+        var that = (Endpoint) obj;
+        return Objects.equals(this.address, that.address) &&
+               this.port == that.port;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(address, port);
+    }
+
 }

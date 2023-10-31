@@ -19,7 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
-import java.util.List;
+import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -50,14 +50,14 @@ public class DefaultNode implements Node {
      * 日志存储
      */
     private LogRepository logRepository;
-    
+
     //----------------------------------------------------------------------------------------------------
 
     /**
      * 全局锁, 控制 Raft 需要的状态等数据的变动. 两个分割线内的数据需要通过锁变更
      */
     private final Lock lock;
-    
+
     /**
      * 状态
      */
@@ -243,12 +243,12 @@ public class DefaultNode implements Node {
                 return;
             }
             long term;
-            if (!preVote) { // 正式投票时更改状态和当前任期的投票
-                LOG.info("发起预投票, 当前任期:[{}]", term = ++currTerm); // 正式投票改变任期
+            if (preVote) { // 正式投票时更改状态和当前任期的投票
+                LOG.info("发起预投票, 当前任期:[{}]", term = currTerm + 1); // 预投票不改变任期, 防止对称分区任期不断增加
+            } else {
+                LOG.info("发起正式投票, 竞选任期:[{}]", term = ++currTerm); // 正式投票改变任期
                 state = State.CANDIDATE;
                 votedEndpoint = configuration.getEndpoint();
-            } else {
-                LOG.info("发起正式投票, 当前任期:[{}]", term = currTerm + 1); // 预投票不改变任期, 防止对称分区任期不断增加
             }
             LongAdder voteCount = new LongAdder(); // 赞成票计数
             voteCount.increment();
@@ -277,7 +277,12 @@ public class DefaultNode implements Node {
                             }
                         }
                     },
-                    (endpoint, throwable) -> LOG.info("请求另一个节点投票时出错, 可能存在网络分区. 节点:[{}]", endpoint, throwable)
+                    (endpoint, throwable) -> {
+                        LOG.info("请求另一个节点投票时出错, 可能存在网络分区. 节点:[{}]", endpoint);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("出错原因如下", throwable);
+                        }
+                    }
             );
             if (request.preVote()) { // 预投票结果判断
                 if (voteCount.sum() >= quorum()) {
@@ -305,7 +310,7 @@ public class DefaultNode implements Node {
     }
 
     private long quorum() {
-        return (configuration.getOtherEndpoints().size() + 1) / 2;
+        return configuration.getOtherEndpoints().size() / 2 + 1;
     }
 
     private boolean isCurrentLeaderValid() {
@@ -321,7 +326,7 @@ public class DefaultNode implements Node {
                 return;
             }
             LongAdder voteCount = new LongAdder(); // 反对票计数
-            AppendEntriesRequest request = new AppendEntriesRequest(currTerm, List.of());
+            AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList());
             sendRequestAllOf(
                     endpoint -> {
                         RpcRequest rpcRequest = new RpcRequest(endpoint, request, configuration.getHeartbeatTimeoutMs());
@@ -333,7 +338,10 @@ public class DefaultNode implements Node {
                         }
                     },
                     (endpoint, throwable) -> {
-                        LOG.info("心跳请求另一个节点[{}]时出错, 可能存在网络分区", endpoint, throwable);
+                        LOG.info("心跳请求另一个节点[{}]时出错, 可能存在网络分区", endpoint);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("出错原因如下", throwable);
+                        }
                         voteCount.increment();
                     }
             );
@@ -343,6 +351,8 @@ public class DefaultNode implements Node {
                 votedEndpoint = null;
                 heartbeatTimer.stop();
                 electionTimer.start();
+            } else {
+                LOG.info("心跳成功, 领导者任期续期");
             }
         } finally {
             lock.unlock();
