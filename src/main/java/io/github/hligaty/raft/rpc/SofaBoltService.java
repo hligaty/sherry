@@ -76,7 +76,8 @@ public class SofaBoltService implements RpcService {
 
         public SingleThreadExecutorSyncUserProcessor(String interest) {
             this.interest = interest;
-            String threadNamePrefix = CaseFormat.LOWER_CAMEL.to(CaseFormat.LOWER_HYPHEN, interest) + "-thread-";
+            String simpleInterest = CaseFormat.LOWER_CAMEL.to(CaseFormat.LOWER_HYPHEN, interest.substring(interest.lastIndexOf('.') + 1));
+            String threadNamePrefix = simpleInterest + "-process-thread";
             this.executor = Executors.newSingleThreadExecutor(Thread.ofPlatform().name(threadNamePrefix).factory());
         }
 

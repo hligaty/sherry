@@ -203,16 +203,17 @@ public class DefaultNode implements Node {
             boolean success = false;
             do {
                 if (request.term() < currTerm) {
-                    LOG.info("忽略过时的投票请求, term=[{}], currTerm=[{}]", request.term(), currTerm);
+                    LOG.info("忽略过期的追加日志请求, 过期任期=[{}], 当前任期=[{}]", request.term(), currTerm);
                     break;
                 }
                 lastLeaderTimestamp = System.currentTimeMillis();
-                if (state != State.FOLLOWER) { // 任期大于等于当前节点, 相等时集群只有一个领导者, 那么该节点为候选者; 大于则说明网络分区, 同样是候选者
-                    LOG.info("候选者任期[{}]收到领导者高任期[{}]的追加日志请求, 拒绝并下降为跟随者", currTerm, request.term());
+                if (state != State.FOLLOWER) {
+                    LOG.info("领导者任期[{}]收到新领导者高任期[{}]的追加日志请求, 下降为跟随者", currTerm, request.term());
+                    assert state == State.LEADER; // 一定是领导者(因为用了全局锁, 候选者状态只在 electionSelf() 方法中)
+                    assert request.term() > currTerm; // 并且任期一定比当前节点大
                     state = State.FOLLOWER;
                     votedEndpoint = null;
                     electionTimer.start();
-                    break;
                 }
                 if (request.logEntries().isEmpty()) {
                     LOG.info("收到心跳请求, 更新领导者最后消息时间戳");
@@ -260,7 +261,10 @@ public class DefaultNode implements Node {
                     lastLogId.term(),
                     preVote
             );
-            // 在发生网络分区时 RPC 超时会占用锁很长时间, 可以细化锁, 但需要加 try finally 和 ABA 判断, 这是一个不太影响 Raft 算法, 但需要考虑的问题
+            /*
+            在发生网络分区时 RPC 超时会占用锁很长时间, 而此时可能收到来自竞选成功的领导者的消息, 此时可以直接转变为跟随者,
+            这可以通过细化锁来优化, 但需要加 try finally 和 ABA 判断, 这是一个不太影响 Raft 算法, 但实际中需要考虑的问题
+             */
             sendRequestAllOf(
                     endpoint -> {
                         RpcRequest rpcRequest = new RpcRequest(endpoint, request, configuration.getElectionTimeoutMs());
