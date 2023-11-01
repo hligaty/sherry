@@ -20,7 +20,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
 import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
@@ -51,7 +53,7 @@ public class DefaultNode implements Node {
      */
     private LogRepository logRepository;
 
-    //----------------------------------------------------------------------------------------------------
+    // ----------------------------------------------------------------------------------------------------
 
     /**
      * 全局锁, 控制 Raft 需要的状态等数据的变动. 两个分割线内的数据需要通过锁变更
@@ -72,6 +74,16 @@ public class DefaultNode implements Node {
      * 当前任期的投票
      */
     private Endpoint votedEndpoint;
+
+    /**
+     * 当前节点为领导者时使用, 记录每个跟随者匹配到的最后一个日志
+     */
+    private final Map<Endpoint, Long> matchIndexes = new ConcurrentHashMap<>();
+
+    /**
+     * 当前节点为领导者时使用, 记录要发送给每个跟随者的下一个日志
+     */
+    private final Map<Endpoint, Long> nextIndexes = new ConcurrentHashMap<>();
 
     //----------------------------------------------------------------------------------------------------
 
@@ -201,6 +213,7 @@ public class DefaultNode implements Node {
         lock.lock();
         try {
             boolean success = false;
+            long lastLogIndex = 0;
             do {
                 if (request.term() < currTerm) {
                     LOG.info("忽略过期的追加日志请求, 过期任期=[{}], 当前任期=[{}]", request.term(), currTerm);
@@ -214,9 +227,21 @@ public class DefaultNode implements Node {
                     state = State.FOLLOWER;
                     votedEndpoint = null;
                     electionTimer.start();
+                    heartbeatTimer.stop();
+                }
+                /*
+                解决这个问题: 网络分区后, 旧领导者的日志复制了少部分节点后才意识到不是领导者了(但日志已经过去了), 然后变成跟随者, 这个日志需要删除
+                但这部分日志只能由新领导者与分区的节点协商, 找到共同的日志 A 后删除日志 A 后面的日志, 并复制新领导者日志 A 后面的日志来解决
+                 */
+                long localPrevLogTerm = logRepository.getTerm(request.prevLogIndex());
+                if (request.prevLogTerm() != localPrevLogTerm) {
+                    LOG.info("本地日志索引[{}]存在, 但任期[{}]与追加的日志任期[{}]不同", request.prevLogIndex(), localPrevLogTerm, request.prevLogTerm());
+                    assert request.prevLogIndex() > localPrevLogTerm; // 分区后选举出来的新领导者一定比将要下线的老领导者任期大(由预投票保证)
+                    lastLogIndex = logRepository.getLastLogId().index();
+                    break;
                 }
                 if (request.logEntries().isEmpty()) {
-                    LOG.info("收到心跳请求, 更新领导者最后消息时间戳");
+                    LOG.info("收到心跳或探针请求, 返回最后的日志索引{}", lastLogIndex = logRepository.getLastLogId().index());
                     success = true;
                     break;
                 }
@@ -227,7 +252,7 @@ public class DefaultNode implements Node {
                     LOG.error("追加日志失败, 日志内容:[{}]", request.logEntries());
                 }
             } while (false);
-            return new AppendEntriesResponse(currTerm, success);
+            return new AppendEntriesResponse(currTerm, success, lastLogIndex);
         } finally {
             lock.unlock();
         }
@@ -238,8 +263,7 @@ public class DefaultNode implements Node {
         try {
             if (
                     state != State.FOLLOWER // 必须是跟随者才尝试变成候选者.
-                    // election_timeout_ms 内没有收到领导者的消息, 才尝试变成候选者(因为心跳等消息的时间间隔远小于 election_timeout_ms)
-                    || isCurrentLeaderValid()
+                    || isCurrentLeaderValid() // election_timeout_ms 内没有收到领导者的消息, 才尝试变成候选者(因为心跳等消息的时间间隔远小于 election_timeout_ms)
             ) {
                 return;
             }
@@ -263,7 +287,7 @@ public class DefaultNode implements Node {
             );
             /*
             在发生网络分区时 RPC 超时会占用锁很长时间, 而此时可能收到来自竞选成功的领导者的消息, 此时可以直接转变为跟随者,
-            这可以通过细化锁来优化, 但需要加 try finally 和 ABA 判断, 这是一个不太影响 Raft 算法, 但实际中需要考虑的问题
+            这可以通过细化锁来优化, 但需要加锁的很多 try finally 代码块和 ABA 判断, 这是一个不太影响 Raft 算法, 但实际中需要考虑的问题
              */
             sendRequestAllOf(
                     endpoint -> {
@@ -298,11 +322,7 @@ public class DefaultNode implements Node {
                 }
             } else if (voteCount.sum() >= quorum()) {
                 LOG.info("正式投票票数[{}]超过一半节点, 上升为领导者", voteCount.sum());
-                state = State.LEADER;
-                votedEndpoint = null;
-                // TODO: 2023/10/27 获取每个节点的 lastLogIndex 后追加日志 
-                electionTimer.stop();
-                heartbeatTimer.start();
+                becomeLeader();
             } else {
                 LOG.info("正式投票票数[{}]少于一半节点, 下降为跟随者", voteCount.sum());
                 state = State.FOLLOWER;
@@ -315,6 +335,55 @@ public class DefaultNode implements Node {
 
     private long quorum() {
         return configuration.getOtherEndpoints().size() / 2 + 1;
+    }
+
+    private void becomeLeader() {
+        state = State.LEADER;
+        votedEndpoint = null;
+        electionTimer.stop();
+        LongAdder voteCount = new LongAdder(); // 反对票计数
+        sendRequestAllOf(
+                endpoint -> {
+                    long prevLogIndex = nextIndexes.get(endpoint) - 1;
+                    long prevLogTerm = logRepository.getTerm(prevLogIndex);
+                    AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex);
+                    RpcRequest rpcRequest = new RpcRequest(endpoint, request, configuration.getHeartbeatTimeoutMs());
+                    if (rpcService.sendRequest(rpcRequest) instanceof AppendEntriesResponse response) {
+                        if (response.success()) {
+                            matchIndexes.put(endpoint, response.lastLogIndex());
+                        } else if (response.term() > currTerm) {
+                            LOG.info("探针发现节点[{}]任期[{}]大于当前节点任期[{}], 下降为跟随者", endpoint, response.term(), currTerm);
+                            voteCount.add(quorum());
+                        } else {
+                            if (response.lastLogIndex() + 1 < prevLogTerm) { // 比当前节点小说明索引为 prevLogIndex 的日志不存在, 用它的最新日志继续探测
+                                nextIndexes.put(endpoint, response.lastLogIndex() + 1);
+                            } else {
+                                nextIndexes.computeIfPresent(endpoint, (__, nextIndex) -> nextIndex - 1);
+                                assert nextIndexes.get(endpoint) >= 0; // 绝对不可能小于 0
+                            }
+                            // TODO: 2023/11/1 继续探测 
+                        }
+                    }
+                },
+                (endpoint, throwable) -> {
+                    LOG.info("探针请求另一个节点[{}]时出错, 可能存在网络分区", endpoint);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("出错原因如下", throwable);
+                    }
+                    voteCount.increment();
+                    matchIndexes.put(endpoint, 0L);
+                }
+        );
+        if (voteCount.sum() >= quorum()) { // 大多数节点不赞成或网络分区, 下降为跟随者
+            LOG.info("探针判定当前节点从领导者下降为跟随者");
+            state = State.FOLLOWER;
+            votedEndpoint = null;
+            electionTimer.start();
+            return;
+        }
+        long nextIndex = logRepository.getLastLogId().index() + 1;
+        configuration.getOtherEndpoints().forEach(endpoint -> nextIndexes.put(endpoint, nextIndex));
+        heartbeatTimer.start();
     }
 
     private boolean isCurrentLeaderValid() {
@@ -330,9 +399,11 @@ public class DefaultNode implements Node {
                 return;
             }
             LongAdder voteCount = new LongAdder(); // 反对票计数
-            AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList());
             sendRequestAllOf(
                     endpoint -> {
+                        long prevLogIndex = nextIndexes.get(endpoint) - 1;
+                        long prevLogTerm = logRepository.getTerm(prevLogIndex);
+                        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex);
                         RpcRequest rpcRequest = new RpcRequest(endpoint, request, configuration.getHeartbeatTimeoutMs());
                         if (rpcService.sendRequest(rpcRequest) instanceof AppendEntriesResponse response) {
                             if (response.term() > currTerm) {

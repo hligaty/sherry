@@ -39,6 +39,11 @@ public class RocksDBRepository implements LogRepository {
     }
 
     @Override
+    public long getTerm(long prevLogIndex) {
+        return 0;
+    }
+
+    @Override
     public void close() {
         rocksDB.close();
     }

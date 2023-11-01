@@ -10,5 +10,6 @@ public interface LogRepository extends Closeable {
     LogEntry get(long index);
 
     LogId getLastLogId();
-    
+
+    long getTerm(long prevLogIndex);
 }
