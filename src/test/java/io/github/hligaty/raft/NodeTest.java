@@ -3,7 +3,7 @@ package io.github.hligaty.raft;
 import io.github.hligaty.BaseTest;
 import io.github.hligaty.raft.config.Configuration;
 import io.github.hligaty.raft.core.DefaultNode;
-import io.github.hligaty.raft.util.Endpoint;
+import io.github.hligaty.raft.util.Peer;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -12,17 +12,17 @@ import java.util.stream.Stream;
 
 class NodeTest extends BaseTest {
 
-    List<Endpoint> allEndpoints = Stream.of(4869, 4870, 4871)
-            .map(port -> new Endpoint("localhost", port))
+    List<Peer> allPeers = Stream.of(4869, 4870, 4871)
+            .map(port -> new Peer("localhost", port))
             .toList();
     
     @Test
     public void node1() {
-        List<Endpoint> endpoints = new ArrayList<>(allEndpoints);
-        Endpoint endpoint = endpoints.remove(0);
+        List<Peer> peers = new ArrayList<>(allPeers);
+        Peer peer = peers.remove(0);
         Configuration configuration = new Configuration()
-                .setEndpoint(endpoint)
-                .addPeerNodes(endpoints);
+                .setPeer(peer)
+                .addPeerNodes(peers);
         Node node = new DefaultNode();
         node.setConfiguration(configuration);
         node.startup();
@@ -31,11 +31,11 @@ class NodeTest extends BaseTest {
 
     @Test
     public void node2() {
-        List<Endpoint> endpoints = new ArrayList<>(allEndpoints);
-        Endpoint endpoint = endpoints.remove(1);
+        List<Peer> peers = new ArrayList<>(allPeers);
+        Peer peer = peers.remove(1);
         Configuration configuration = new Configuration()
-                .setEndpoint(endpoint)
-                .addPeerNodes(endpoints);
+                .setPeer(peer)
+                .addPeerNodes(peers);
         Node node = new DefaultNode();
         node.setConfiguration(configuration);
         node.startup();
@@ -44,11 +44,11 @@ class NodeTest extends BaseTest {
 
     @Test
     public void node3() {
-        List<Endpoint> endpoints = new ArrayList<>(allEndpoints);
-        Endpoint endpoint = endpoints.remove(2);
+        List<Peer> peers = new ArrayList<>(allPeers);
+        Peer peer = peers.remove(2);
         Configuration configuration = new Configuration()
-                .setEndpoint(endpoint)
-                .addPeerNodes(endpoints);
+                .setPeer(peer)
+                .addPeerNodes(peers);
         Node node = new DefaultNode();
         node.setConfiguration(configuration);
         node.startup();

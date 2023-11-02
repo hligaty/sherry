@@ -11,5 +11,5 @@ public interface LogRepository extends Closeable {
 
     LogId getLastLogId();
 
-    long getTerm(long prevLogIndex);
+    void truncateSuffix(final long lastIndexKept);
 }

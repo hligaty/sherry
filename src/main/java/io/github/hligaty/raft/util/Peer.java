@@ -4,13 +4,13 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.util.Objects;
 
-public final class Endpoint implements Serializable {
+public final class Peer implements Serializable {
     @Serial
     private static final long serialVersionUID = 0L;
     private final String address;
     private final int port;
 
-    public Endpoint(
+    public Peer(
             String address,
             int port
     ) {
@@ -35,7 +35,7 @@ public final class Endpoint implements Serializable {
     public boolean equals(Object obj) {
         if (obj == this) return true;
         if (obj == null || obj.getClass() != this.getClass()) return false;
-        var that = (Endpoint) obj;
+        var that = (Peer) obj;
         return Objects.equals(this.address, that.address) &&
                this.port == that.port;
     }

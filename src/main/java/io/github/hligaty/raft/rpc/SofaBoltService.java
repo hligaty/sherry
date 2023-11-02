@@ -12,7 +12,7 @@ import io.github.hligaty.raft.Node;
 import io.github.hligaty.raft.config.Configuration;
 import io.github.hligaty.raft.rpc.packet.AppendEntriesRequest;
 import io.github.hligaty.raft.rpc.packet.RequestVoteRequest;
-import io.github.hligaty.raft.util.Endpoint;
+import io.github.hligaty.raft.util.Peer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +31,7 @@ public class SofaBoltService implements RpcService {
     public SofaBoltService(Configuration configuration, Node node) {
         this.configuration = configuration;
         this.node = node;
-        RpcServer rpcServer = new RpcServer(configuration.getEndpoint().port());
+        RpcServer rpcServer = new RpcServer(configuration.getPeer().port());
         rpcServer.registerUserProcessor(
                 new SingleThreadExecutorSyncUserProcessor<>(RequestVoteRequest.class.getName())
         );
@@ -57,8 +57,8 @@ public class SofaBoltService implements RpcService {
 
     @Override
     public Object sendRequest(RpcRequest rpcRequest) throws RpcException {
-        Endpoint endpoint = rpcRequest.endpoint();
-        Url url = new Url(endpoint.address(), endpoint.port());
+        Peer peer = rpcRequest.peer();
+        Url url = new Url(peer.address(), peer.port());
         url.setProtocol(RpcProtocol.PROTOCOL_CODE);
         url.setConnectTimeout(configuration.getRpcConnectTimeoutMs());
         try {

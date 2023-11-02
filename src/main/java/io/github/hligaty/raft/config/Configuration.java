@@ -1,6 +1,6 @@
 package io.github.hligaty.raft.config;
 
-import io.github.hligaty.raft.util.Endpoint;
+import io.github.hligaty.raft.util.Peer;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -10,12 +10,12 @@ public class Configuration {
     /**
      * 当前节点地址
      */
-    private Endpoint endpoint;
+    private Peer peer;
 
     /**
      * 其他节点地址
      */
-    private final List<Endpoint> otherEndpoints = new ArrayList<>();
+    private final List<Peer> peers = new ArrayList<>();
 
     /**
      * 选举超时时间, 超过这个时间且没有收到来自领导者的消息则变成候选者
@@ -34,26 +34,26 @@ public class Configuration {
     
     private int rpcRequestTimeoutMs = 5000;
     
-    public Endpoint getEndpoint() {
-        return endpoint;
+    public Peer getPeer() {
+        return peer;
     }
 
-    public Configuration setEndpoint(Endpoint endpoint) {
-        this.endpoint = endpoint;
+    public Configuration setPeer(Peer peer) {
+        this.peer = peer;
         return this;
     }
 
-    public List<Endpoint> getOtherEndpoints() {
-        return otherEndpoints;
+    public List<Peer> getPeers() {
+        return peers;
     }
 
-    public Configuration addPeerNodes(List<Endpoint> endpoints) {
-        this.otherEndpoints.addAll(endpoints);
+    public Configuration addPeerNodes(List<Peer> peers) {
+        this.peers.addAll(peers);
         return this;
     }
 
-    public Configuration addPeerNode(Endpoint endpoint) {
-        otherEndpoints.add(endpoint);
+    public Configuration addPeerNode(Peer peer) {
+        peers.add(peer);
         return this;
     }
 

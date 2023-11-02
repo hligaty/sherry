@@ -1,6 +1,6 @@
 package io.github.hligaty.raft.rpc.packet;
 
-import io.github.hligaty.raft.util.Endpoint;
+import io.github.hligaty.raft.util.Peer;
 
 import java.io.Serial;
 import java.io.Serializable;
@@ -9,28 +9,28 @@ import java.util.Objects;
 public final class RequestVoteRequest implements Serializable {
     @Serial
     private static final long serialVersionUID = 0L;
-    private final Endpoint endpoint;
+    private final Peer peer;
     private final long term;
     private final long lastLogIndex;
     private final long lastLogTerm;
     private final boolean preVote;
 
     public RequestVoteRequest(
-            Endpoint endpoint,
+            Peer peer,
             long term,
             long lastLogIndex,
             long lastLogTerm,
             boolean preVote
     ) {
-        this.endpoint = endpoint;
+        this.peer = peer;
         this.term = term;
         this.lastLogIndex = lastLogIndex;
         this.lastLogTerm = lastLogTerm;
         this.preVote = preVote;
     }
 
-    public Endpoint endpoint() {
-        return endpoint;
+    public Peer endpoint() {
+        return peer;
     }
 
     public long term() {
@@ -54,7 +54,7 @@ public final class RequestVoteRequest implements Serializable {
         if (obj == this) return true;
         if (obj == null || obj.getClass() != this.getClass()) return false;
         var that = (RequestVoteRequest) obj;
-        return Objects.equals(this.endpoint, that.endpoint) &&
+        return Objects.equals(this.peer, that.peer) &&
                this.term == that.term &&
                this.lastLogIndex == that.lastLogIndex &&
                this.lastLogTerm == that.lastLogTerm &&
@@ -63,13 +63,13 @@ public final class RequestVoteRequest implements Serializable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(endpoint, term, lastLogIndex, lastLogTerm, preVote);
+        return Objects.hash(peer, term, lastLogIndex, lastLogTerm, preVote);
     }
 
     @Override
     public String toString() {
         return "RequestVoteRequest[" +
-               "endpoint=" + endpoint + ", " +
+               "endpoint=" + peer + ", " +
                "term=" + term + ", " +
                "lastLogIndex=" + lastLogIndex + ", " +
                "lastLogTerm=" + lastLogTerm + ", " +
