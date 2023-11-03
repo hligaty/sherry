@@ -17,38 +17,13 @@ class NodeTest extends BaseTest {
             .toList();
     
     @Test
-    public void node1() {
+    public void node() {
+        int port = Integer.parseInt(System.getProperty("port"));
         List<Peer> peers = new ArrayList<>(allPeers);
-        Peer peer = peers.remove(0);
+        peers.removeIf(peer -> peer.port() == port);
         Configuration configuration = new Configuration()
-                .setPeer(peer)
-                .addPeerNodes(peers);
-        Node node = new DefaultNode();
-        node.setConfiguration(configuration);
-        node.startup();
-        sleep();
-    }
-
-    @Test
-    public void node2() {
-        List<Peer> peers = new ArrayList<>(allPeers);
-        Peer peer = peers.remove(1);
-        Configuration configuration = new Configuration()
-                .setPeer(peer)
-                .addPeerNodes(peers);
-        Node node = new DefaultNode();
-        node.setConfiguration(configuration);
-        node.startup();
-        sleep();
-    }
-
-    @Test
-    public void node3() {
-        List<Peer> peers = new ArrayList<>(allPeers);
-        Peer peer = peers.remove(2);
-        Configuration configuration = new Configuration()
-                .setPeer(peer)
-                .addPeerNodes(peers);
+                .setPeer(new Peer("localhost", port))
+                .addPeers(peers);
         Node node = new DefaultNode();
         node.setConfiguration(configuration);
         node.startup();

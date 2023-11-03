@@ -47,12 +47,12 @@ public class Configuration {
         return peers;
     }
 
-    public Configuration addPeerNodes(List<Peer> peers) {
+    public Configuration addPeers(List<Peer> peers) {
         this.peers.addAll(peers);
         return this;
     }
 
-    public Configuration addPeerNode(Peer peer) {
+    public Configuration addPeers(Peer peer) {
         peers.add(peer);
         return this;
     }

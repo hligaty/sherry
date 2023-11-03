@@ -103,6 +103,11 @@
             <artifactId>rocksdbjni</artifactId>
             <version>${rocksdb.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.furyio</groupId>
+            <artifactId>fury-core</artifactId>
+            <version>0.2.1</version>
+        </dependency>
         <!--        io.github.hligaty.raft.standard dep end-->
     </dependencies>
 

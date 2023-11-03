@@ -5,11 +5,17 @@ import java.util.List;
 
 public interface LogRepository extends Closeable {
     
+    void appendEntry(LogEntry logEntry);
+    
     void appendEntries(List<LogEntry> logEntries) throws StoreException;
     
-    LogEntry get(long index);
-
+    LogEntry getEntry(long index);
+    
+    long getLastLogIndex();
+    
     LogId getLastLogId();
+    
+    List<LogEntry> getSuffix(long beginIndex);
 
-    void truncateSuffix(final long lastIndexKept);
+    void truncateSuffix(long lastIndexKept);
 }

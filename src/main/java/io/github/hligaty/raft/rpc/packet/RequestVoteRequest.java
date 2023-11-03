@@ -29,7 +29,7 @@ public final class RequestVoteRequest implements Serializable {
         this.preVote = preVote;
     }
 
-    public Peer endpoint() {
+    public Peer peer() {
         return peer;
     }
 

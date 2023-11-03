@@ -1,6 +1,7 @@
 package io.github.hligaty.raft.core;
 
 import io.github.hligaty.raft.Node;
+import io.github.hligaty.raft.StateMachine;
 import io.github.hligaty.raft.config.Configuration;
 import io.github.hligaty.raft.rpc.RpcException;
 import io.github.hligaty.raft.rpc.RpcRequest;
@@ -10,10 +11,10 @@ import io.github.hligaty.raft.rpc.packet.AppendEntriesRequest;
 import io.github.hligaty.raft.rpc.packet.AppendEntriesResponse;
 import io.github.hligaty.raft.rpc.packet.RequestVoteRequest;
 import io.github.hligaty.raft.rpc.packet.RequestVoteResponse;
+import io.github.hligaty.raft.storage.LogEntry;
 import io.github.hligaty.raft.storage.LogId;
 import io.github.hligaty.raft.storage.LogRepository;
 import io.github.hligaty.raft.storage.RocksDBRepository;
-import io.github.hligaty.raft.storage.StoreException;
 import io.github.hligaty.raft.util.Peer;
 import io.github.hligaty.raft.util.RepeatedTimer;
 import org.slf4j.Logger;
@@ -21,6 +22,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,10 +33,9 @@ import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
-public class DefaultNode implements Node {
+public class DefaultNode implements Node, RaftServerService {
 
     private static final Logger LOG = LoggerFactory.getLogger(DefaultNode.class);
 
@@ -54,6 +55,8 @@ public class DefaultNode implements Node {
      * 日志存储
      */
     private LogRepository logRepository;
+    
+    private final StateMachine stateMachine;
 
     // ----------------------------------------------------------------------------------------------------
 
@@ -99,9 +102,10 @@ public class DefaultNode implements Node {
      */
     private RepeatedTimer heartbeatTimer;
 
-    public DefaultNode() {
+    public DefaultNode(StateMachine stateMachine) {
         this.lock = new ReentrantLock();
         this.virtualThreadPerTaskExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        this.stateMachine = stateMachine;
     }
 
     @Override
@@ -144,10 +148,19 @@ public class DefaultNode implements Node {
     }
 
     @Override
-    public <T extends Serializable> void apply(T data) {
+    public <T extends Serializable, R extends Serializable> R apply(T data) {
         lock.lock();
         try {
-            // TODO: 2023/10/30 应用 
+            if (state != State.LEADER) {
+                throw new ApplyException(ErrorType.NOT_LEADER);
+            }
+            long lastLogIndex = logRepository.getLastLogIndex();
+            LogEntry logEntry = new LogEntry(new LogId(lastLogIndex + 1, currTerm), data);
+            logRepository.appendEntry(logEntry);
+            if (!sendEntries()) {
+                throw new ApplyException(ErrorType.REPLICATION_FAIL);
+            }
+            return stateMachine.apply(data);
         } finally {
             lock.unlock();
         }
@@ -187,7 +200,7 @@ public class DefaultNode implements Node {
                 granted = true;
                 if (!request.preVote()) { // 正式投票阶段投票后更改状态为跟随者
                     stepDown(request.term());
-                    votedPeer = request.endpoint();
+                    votedPeer = request.peer();
                 }
             } while (false);
             return new RequestVoteResponse(currTerm, granted);
@@ -217,26 +230,27 @@ public class DefaultNode implements Node {
                 解决这个问题: 网络分区后, 旧领导者的日志复制了少部分节点后才意识到不是领导者了(但日志已经过去了), 然后变成跟随者, 这个日志需要删除
                 但这部分日志只能由新领导者与分区的节点协商, 找到共同的日志 A 后删除日志 A 后面的日志, 并复制新领导者日志 A 后面的日志来解决
                  */
-                long localPrevLogTerm = logRepository.get(request.prevLogIndex()).logId().term();
+                long localPrevLogTerm = logRepository.getEntry(request.prevLogIndex()).logId().term();
                 if (request.prevLogTerm() != localPrevLogTerm) {
                     LOG.info("本地日志索引[{}]存在, 但与任期[{}]与追加的日志任期[{}]不同", request.prevLogIndex(), localPrevLogTerm, request.prevLogTerm());
                     assert request.prevLogIndex() > localPrevLogTerm; // 分区后选举出来的新领导者一定比将要下线的老领导者任期大(由预投票保证)
-                    lastLogIndex = logRepository.getLastLogId().index();
+                    lastLogIndex = logRepository.getLastLogIndex();
                     break;
                 }
                 if (request.logEntries().isEmpty()) {
                     LOG.info("收到心跳或探测请求, 且与预期的前一个日志匹配, 任期[{}]", currTerm);
                     success = true;
                     // 也返回最后的日志索引, 这样(response.lastLogIndex() + 1 < prevLogTerm 为 false)领导者就可以从后向前匹配了
-                    lastLogIndex = logRepository.getLastLogId().index();
+                    lastLogIndex = logRepository.getLastLogIndex();
+                    // TODO: 2023/11/3 应用日志到状态机 
                     break;
                 }
                 try {
                     logRepository.truncateSuffix(request.prevLogIndex());
                     logRepository.appendEntries(request.logEntries());
                     success = true;
-                } catch (StoreException e) {
-                    LOG.error("追加日志失败, 日志内容:[{}]", request.logEntries());
+                } catch (Exception e) {
+                    LOG.error("追加日志失败!!! 日志内容:[{}]", request.logEntries(), e);
                 }
             } while (false);
             return new AppendEntriesResponse(currTerm, success, lastLogIndex);
@@ -280,22 +294,24 @@ public class DefaultNode implements Node {
                     peer -> {
                         RpcRequest rpcRequest = new RpcRequest(peer, request, configuration.getElectionTimeoutMs());
                         // 发起投票请求
-                        if (rpcService.sendRequest(rpcRequest) instanceof RequestVoteResponse response) {
-                            if (response.term() > term) { // 其他人的任期更高, 回退为跟随者
-                                LOG.info("其他节点[{}]任期[{}]更高, 当前节点准备回退为跟随者. 当前节点任期:[{}]", peer, response.term(), term);
-                                stepDown(response.term());
-                            } else if (response.granted()) {
-                                LOG.info("其他节点[{}]赞同投票. 当前节点任期:[{}]", peer, term);
-                                voteCount.increment();
-                            } else {
-                                LOG.info("其他节点[{}]任期[{}]不大, 但日志更多, 不投票. 当前节点任期:[{}], ", peer, response.term(), term);
+                        RequestVoteResponse response;
+                        try {
+                            response = (RequestVoteResponse) rpcService.sendRequest(rpcRequest);
+                        } catch (Exception e) {
+                            LOG.info("请求另一个节点投票时出错, 可能存在网络分区. 节点:[{}], 当前节点任期[{}]", peer, currTerm);
+                            if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
+                                LOG.error("出错原因如下", e);
                             }
+                            return;
                         }
-                    },
-                    (endpoint, throwable) -> {
-                        LOG.info("请求另一个节点投票时出错, 可能存在网络分区. 节点:[{}], 当前节点任期[{}]", endpoint, currTerm);
-                        if (LOG.isDebugEnabled() || !(throwable.getCause() instanceof RpcException)) {
-                            LOG.error("出错原因如下", throwable);
+                        if (response.term() > term) { // 其他人的任期更高, 回退为跟随者
+                            LOG.info("其他节点[{}]任期[{}]更高, 当前节点准备回退为跟随者. 当前节点任期:[{}]", peer, response.term(), term);
+                            stepDown(response.term());
+                        } else if (response.granted()) {
+                            LOG.info("其他节点[{}]赞同投票. 当前节点任期:[{}]", peer, term);
+                            voteCount.increment();
+                        } else {
+                            LOG.info("其他节点[{}]任期[{}]不大, 但日志更多, 不投票. 当前节点任期:[{}], ", peer, response.term(), term);
                         }
                     }
             );
@@ -328,29 +344,39 @@ public class DefaultNode implements Node {
         state = State.LEADER;
         votedPeer = null;
         electionTimer.stop();
-        long nextIndex = logRepository.getLastLogId().index() + 1;
-        configuration.getPeers().forEach(endpoint -> nextIndexes.put(endpoint, nextIndex));
+        long nextIndex = logRepository.getLastLogIndex() + 1;
+        configuration.getPeers().forEach(peer -> nextIndexes.put(peer, nextIndex));
+        if (!sendProbeRequest()) {
+            LOG.info("探测发现存在其他节点任期更高, 已下降为跟随者, 当前任期[{}]", currTerm);
+            return;
+        } else if (!sendEntries()) {
+            LOG.info("成为领导者后第一次追加日志失败, 已下降为跟随者, 当前任期[{}]", currTerm);
+            return;
+        }
+        heartbeatTimer.start();
+    }
+    
+    private boolean sendProbeRequest() {
         LongAdder voteCount = new LongAdder(); // 反对票计数
         sendRequestAllOf(
-                this::sendProbeRequest,
-                (endpoint, throwable) -> {
-                    LOG.info("探测节点[{}]下一个要发送日志时发生错误, 可能出现网络分区, 当前节点任期[{}]", endpoint, currTerm);
-                    if (LOG.isDebugEnabled() || !(throwable.getCause() instanceof RpcException)) {
-                        LOG.debug("出错原因如下", throwable);
+                peer -> {
+                    try {
+                        sendProbeRequest(peer);
+                    } catch (Exception e) {
+                        LOG.info("探测节点[{}]下一个要发送日志时发生错误, 可能出现网络分区, 当前节点任期[{}]", peer, currTerm);
+                        if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
+                            LOG.debug("出错原因如下", e);
+                        }
+                        voteCount.increment();
                     }
-                    voteCount.increment();
                 }
         );
         if (voteCount.sum() >= quorum()) {
             LOG.info("探测发现不被大多数节点认可, 可能是网络分区, 下降为跟随者");
             stepDown(currTerm);
-            return;
-        } else if (state != State.LEADER) {
-            LOG.info("探测发现存在其他节点任期更高, 已下降为跟随者");
-            return;
+            return false;
         }
-        sendEntries();
-        heartbeatTimer.start();
+        return state == State.LEADER;
     }
 
     private void sendProbeRequest(Peer peer) {
@@ -359,7 +385,7 @@ public class DefaultNode implements Node {
             return;
         }
         long prevLogIndex = nextIndexes.get(peer) - 1;
-        long prevLogTerm = logRepository.get(prevLogIndex).logId().term();
+        long prevLogTerm = logRepository.getEntry(prevLogIndex).logId().term();
         AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex);
         RpcRequest rpcRequest = new RpcRequest(peer, request, configuration.getHeartbeatTimeoutMs());
         AppendEntriesResponse response = (AppendEntriesResponse) rpcService.sendRequest(rpcRequest);
@@ -383,24 +409,60 @@ public class DefaultNode implements Node {
             sendProbeRequest(peer);
         }
     }
-    
-    private void sendEntries() {
+
+    private boolean sendEntries() {
+        LongAdder voteCount = new LongAdder(); // 赞同票计数
         sendRequestAllOf(
                 peer -> {
-                    long nextIndex = nextIndexes.get(peer);
-                    // TODO: 2023/11/2 复制日志到这个节点 
-                },
-                (peer, throwable) -> {}
+                    try {
+                        sendEntries(peer);
+                        voteCount.add(state == State.LEADER ? 1 : 0);
+                    } catch (Exception e) {
+                        LOG.info("节点[{}]追加日志时发生错误, 可能出现网络分区, 当前节点任期[{}]", peer, currTerm);
+                        if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
+                            LOG.debug("出错原因如下", e);
+                        }
+                    }
+                }
         );
+        if (voteCount.sum() < quorum()) {
+            LOG.info("追加日志不被大多数节点认可, 可能是网络分区, 下降为跟随者");
+            stepDown(currTerm);
+            return false;
+        }
+        return state == State.LEADER;
+    }
+
+    private void sendEntries(Peer peer) {
+        if (state != State.LEADER) {
+            LOG.info("其他节点[{}]追加日志时发现当前节点任期[{}]已不是领导者, 结束", peer, currTerm);
+            return;
+        }
+        LogId prevLogId = logRepository.getEntry(nextIndexes.get(peer)).logId();
+        List<LogEntry> logEntries = logRepository.getSuffix(prevLogId.index());
+        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, logEntries, prevLogId.term(), prevLogId.index());
+        RpcRequest rpcRequest = new RpcRequest(peer, request, configuration.getHeartbeatTimeoutMs());
+        AppendEntriesResponse response = (AppendEntriesResponse) rpcService.sendRequest(rpcRequest);
+        if (response.success()) {
+            return;
+        }
+        if (response.term() > currTerm) {
+            LOG.info("其他节点[{}]任期[{}]追加日志时, 发现当前节点任期[{}]小, 下降为跟随者", peer, response.term(), currTerm);
+            stepDown(response.term());
+        } else {
+            LOG.info("其他节点[{}]任期[{}]追加日志失败, 发送探测请求后重新追加, 当前节点任期[{}]", peer, response.term(), currTerm);
+            sendProbeRequest(peer);
+            sendEntries(peer);
+        }
     }
 
     private static final AtomicLongFieldUpdater<DefaultNode> currTermUpdater
             = AtomicLongFieldUpdater.newUpdater(DefaultNode.class, "currTerm");
-    
+
     private long increaseTermTo(long newTerm) {
         return currTermUpdater.accumulateAndGet(this, newTerm, Math::max); // 用来解决锁内多线程更新任期
     }
-    
+
     private void stepDown(long newTerm) {
         state = State.FOLLOWER;
         increaseTermTo(newTerm);
@@ -426,22 +488,24 @@ public class DefaultNode implements Node {
             sendRequestAllOf(
                     peer -> {
                         long prevLogIndex = nextIndexes.get(peer) - 1;
-                        long prevLogTerm = logRepository.get(prevLogIndex).logId().term();
+                        long prevLogTerm = logRepository.getEntry(prevLogIndex).logId().term();
                         AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex);
                         RpcRequest rpcRequest = new RpcRequest(peer, request, configuration.getHeartbeatTimeoutMs());
-                        if (rpcService.sendRequest(rpcRequest) instanceof AppendEntriesResponse response) {
-                            if (response.term() > currTerm) {
-                                LOG.info("心跳发现节点[{}]任期[{}]大于当前节点任期[{}], 下降为跟随者", peer, response.term(), currTerm);
-                                stepDown(response.term());
+                        AppendEntriesResponse response;
+                        try {
+                            response = (AppendEntriesResponse) rpcService.sendRequest(rpcRequest);
+                        } catch (Exception e) {
+                            LOG.info("心跳请求另一个节点[{}]时出错, 可能存在网络分区, 当前节点任期[{}]", peer, currTerm);
+                            if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
+                                LOG.debug("出错原因如下", e);
                             }
+                            voteCount.increment();
+                            return;
                         }
-                    },
-                    (endpoint, throwable) -> {
-                        LOG.info("心跳请求另一个节点[{}]时出错, 可能存在网络分区, 当前节点任期[{}]", endpoint, currTerm);
-                        if (LOG.isDebugEnabled() || !(throwable.getCause() instanceof RpcException)) {
-                            LOG.debug("出错原因如下", throwable);
+                        if (response.term() > currTerm) {
+                            LOG.info("心跳发现节点[{}]任期[{}]大于当前节点任期[{}], 下降为跟随者", peer, response.term(), currTerm);
+                            stepDown(response.term());
                         }
-                        voteCount.increment();
                     }
             );
             if (voteCount.sum() >= quorum()) { // 大多数节点不赞成或网络分区, 下降为跟随者
@@ -455,16 +519,11 @@ public class DefaultNode implements Node {
         }
     }
 
-    private void sendRequestAllOf(Consumer<Peer> requestHandler, BiConsumer<Peer, Throwable> exceptionHandler) {
+    private void sendRequestAllOf(Consumer<Peer> requestHandler) {
         CompletableFuture
                 .allOf(
                         configuration.getPeers().stream()
-                                .map(endpoint -> CompletableFuture
-                                        .runAsync(() -> requestHandler.accept(endpoint), virtualThreadPerTaskExecutor)
-                                        .exceptionally(throwable -> {
-                                            exceptionHandler.accept(endpoint, throwable);
-                                            return null;
-                                        }))
+                                .map(peer -> CompletableFuture.runAsync(() -> requestHandler.accept(peer), virtualThreadPerTaskExecutor))
                                 .toArray(CompletableFuture[]::new))
                 .join();
     }

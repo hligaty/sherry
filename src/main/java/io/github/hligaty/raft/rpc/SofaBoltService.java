@@ -8,29 +8,27 @@ import com.alipay.remoting.rpc.RpcServer;
 import com.alipay.remoting.rpc.protocol.RpcProtocol;
 import com.alipay.remoting.rpc.protocol.SyncUserProcessor;
 import com.google.common.base.CaseFormat;
-import io.github.hligaty.raft.Node;
 import io.github.hligaty.raft.config.Configuration;
+import io.github.hligaty.raft.core.RaftServerService;
 import io.github.hligaty.raft.rpc.packet.AppendEntriesRequest;
 import io.github.hligaty.raft.rpc.packet.RequestVoteRequest;
 import io.github.hligaty.raft.util.Peer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 public class SofaBoltService implements RpcService {
 
-    private static final Logger LOG = LoggerFactory.getLogger(SofaBoltService.class);
-
     private final Configuration configuration;
-    private final Node node;
+
+    private final RaftServerService raftServerService;
+
     private final RpcClient rpcClient;
 
 
-    public SofaBoltService(Configuration configuration, Node node) {
+    public SofaBoltService(Configuration configuration, RaftServerService raftServerService) {
         this.configuration = configuration;
-        this.node = node;
+        this.raftServerService = raftServerService;
         RpcServer rpcServer = new RpcServer(configuration.getPeer().port());
         rpcServer.registerUserProcessor(
                 new SingleThreadExecutorSyncUserProcessor<>(RequestVoteRequest.class.getName())
@@ -47,9 +45,9 @@ public class SofaBoltService implements RpcService {
     public Object handleRequest(Object request) {
         return switch (request) {
             case RequestVoteRequest requestVoteRequest:
-                yield node.handleRequestVoteRequest(requestVoteRequest);
+                yield raftServerService.handleRequestVoteRequest(requestVoteRequest);
             case AppendEntriesRequest appendEntriesRequest:
-                yield node.handleAppendEntriesRequest(appendEntriesRequest);
+                yield raftServerService.handleAppendEntriesRequest(appendEntriesRequest);
             default:
                 throw new IllegalStateException("Unexpected value: " + request);
         };
