@@ -55,7 +55,7 @@ public class DefaultNode implements Node, RaftServerService {
      * 日志存储
      */
     private LogRepository logRepository;
-    
+
     private final StateMachine stateMachine;
 
     // ----------------------------------------------------------------------------------------------------
@@ -84,6 +84,11 @@ public class DefaultNode implements Node, RaftServerService {
      * 当前节点为领导者时使用, 记录要发送给每个跟随者的下一个日志
      */
     private final Map<Peer, Long> nextIndexes = new ConcurrentHashMap<>();
+
+    /**
+     * 当前节点为领导者时使用, 记录最后已提交到状态机的日志索引
+     */
+    private long lastApplied;
 
     //----------------------------------------------------------------------------------------------------
 
@@ -148,7 +153,7 @@ public class DefaultNode implements Node, RaftServerService {
     }
 
     @Override
-    public <T extends Serializable, R extends Serializable> R apply(T data) {
+    public <T extends Serializable, R extends Serializable> R handleClientRequest(T data) {
         lock.lock();
         try {
             if (state != State.LEADER) {
@@ -160,7 +165,9 @@ public class DefaultNode implements Node, RaftServerService {
             if (!sendEntries()) {
                 throw new ApplyException(ErrorType.REPLICATION_FAIL);
             }
-            return stateMachine.apply(data);
+            R result = stateMachine.apply(data);
+            lastApplied = lastLogIndex;
+            return result;
         } finally {
             lock.unlock();
         }
@@ -232,7 +239,7 @@ public class DefaultNode implements Node, RaftServerService {
                  */
                 long localPrevLogTerm = logRepository.getEntry(request.prevLogIndex()).logId().term();
                 if (request.prevLogTerm() != localPrevLogTerm) {
-                    LOG.info("本地日志索引[{}]存在, 但与任期[{}]与追加的日志任期[{}]不同", request.prevLogIndex(), localPrevLogTerm, request.prevLogTerm());
+                    LOG.info("本地日志索引[{}]存在, 但其任期[{}]与追加的日志任期[{}]不同", request.prevLogIndex(), localPrevLogTerm, request.prevLogTerm());
                     assert request.prevLogIndex() > localPrevLogTerm; // 分区后选举出来的新领导者一定比将要下线的老领导者任期大(由预投票保证)
                     lastLogIndex = logRepository.getLastLogIndex();
                     break;
@@ -242,7 +249,11 @@ public class DefaultNode implements Node, RaftServerService {
                     success = true;
                     // 也返回最后的日志索引, 这样(response.lastLogIndex() + 1 < prevLogTerm 为 false)领导者就可以从后向前匹配了
                     lastLogIndex = logRepository.getLastLogIndex();
-                    // TODO: 2023/11/3 应用日志到状态机 
+                    // 把领导者之前提交的日志提交到状态机
+                    for (LogEntry logEntry : logRepository.getSuffix(lastApplied, request.committedIndex())) {
+                        stateMachine.apply(logEntry);
+                    }
+                    lastApplied = request.committedIndex();
                     break;
                 }
                 try {
@@ -346,6 +357,9 @@ public class DefaultNode implements Node, RaftServerService {
         electionTimer.stop();
         long nextIndex = logRepository.getLastLogIndex() + 1;
         configuration.getPeers().forEach(peer -> nextIndexes.put(peer, nextIndex));
+        long lastLogIndex = logRepository.getLastLogIndex();
+        LogEntry logEntry = new LogEntry(new LogId(lastLogIndex + 1, currTerm), null);
+        logRepository.appendEntry(logEntry);
         if (!sendProbeRequest()) {
             LOG.info("探测发现存在其他节点任期更高, 已下降为跟随者, 当前任期[{}]", currTerm);
             return;
@@ -355,7 +369,7 @@ public class DefaultNode implements Node, RaftServerService {
         }
         heartbeatTimer.start();
     }
-    
+
     private boolean sendProbeRequest() {
         LongAdder voteCount = new LongAdder(); // 反对票计数
         sendRequestAllOf(
@@ -365,7 +379,7 @@ public class DefaultNode implements Node, RaftServerService {
                     } catch (Exception e) {
                         LOG.info("探测节点[{}]下一个要发送日志时发生错误, 可能出现网络分区, 当前节点任期[{}]", peer, currTerm);
                         if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
-                            LOG.debug("出错原因如下", e);
+                            LOG.error("出错原因如下", e);
                         }
                         voteCount.increment();
                     }
@@ -386,7 +400,7 @@ public class DefaultNode implements Node, RaftServerService {
         }
         long prevLogIndex = nextIndexes.get(peer) - 1;
         long prevLogTerm = logRepository.getEntry(prevLogIndex).logId().term();
-        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex);
+        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex, null);
         RpcRequest rpcRequest = new RpcRequest(peer, request, configuration.getHeartbeatTimeoutMs());
         AppendEntriesResponse response = (AppendEntriesResponse) rpcService.sendRequest(rpcRequest);
         if (response.success()) {
@@ -420,7 +434,7 @@ public class DefaultNode implements Node, RaftServerService {
                     } catch (Exception e) {
                         LOG.info("节点[{}]追加日志时发生错误, 可能出现网络分区, 当前节点任期[{}]", peer, currTerm);
                         if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
-                            LOG.debug("出错原因如下", e);
+                            LOG.error("出错原因如下", e);
                         }
                     }
                 }
@@ -440,7 +454,7 @@ public class DefaultNode implements Node, RaftServerService {
         }
         LogId prevLogId = logRepository.getEntry(nextIndexes.get(peer)).logId();
         List<LogEntry> logEntries = logRepository.getSuffix(prevLogId.index());
-        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, logEntries, prevLogId.term(), prevLogId.index());
+        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, logEntries, prevLogId.term(), prevLogId.index(), null);
         RpcRequest rpcRequest = new RpcRequest(peer, request, configuration.getHeartbeatTimeoutMs());
         AppendEntriesResponse response = (AppendEntriesResponse) rpcService.sendRequest(rpcRequest);
         if (response.success()) {
@@ -489,7 +503,7 @@ public class DefaultNode implements Node, RaftServerService {
                     peer -> {
                         long prevLogIndex = nextIndexes.get(peer) - 1;
                         long prevLogTerm = logRepository.getEntry(prevLogIndex).logId().term();
-                        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex);
+                        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex, lastApplied);
                         RpcRequest rpcRequest = new RpcRequest(peer, request, configuration.getHeartbeatTimeoutMs());
                         AppendEntriesResponse response;
                         try {
@@ -497,7 +511,7 @@ public class DefaultNode implements Node, RaftServerService {
                         } catch (Exception e) {
                             LOG.info("心跳请求另一个节点[{}]时出错, 可能存在网络分区, 当前节点任期[{}]", peer, currTerm);
                             if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
-                                LOG.debug("出错原因如下", e);
+                                LOG.error("出错原因如下", e);
                             }
                             voteCount.increment();
                             return;

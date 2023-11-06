@@ -14,17 +14,15 @@ public final class AppendEntriesRequest implements Serializable {
     private final List<LogEntry> logEntries;
     private final long prevLogTerm;
     private final long prevLogIndex;
+    private final Long committedIndex;
 
-    public AppendEntriesRequest(
-            long term,
-            List<LogEntry> logEntries,
-            long prevLogTerm,
-            long prevLogIndex
-    ) {
+    public AppendEntriesRequest(long term, List<LogEntry> logEntries, long prevLogTerm,
+                                long prevLogIndex, Long committedIndex) {
         this.term = term;
         this.logEntries = logEntries;
         this.prevLogTerm = prevLogTerm;
         this.prevLogIndex = prevLogIndex;
+        this.committedIndex = committedIndex;
     }
 
     public long term() {
@@ -43,6 +41,10 @@ public final class AppendEntriesRequest implements Serializable {
         return prevLogIndex;
     }
 
+    public Long committedIndex() {
+        return committedIndex;
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (obj == this) return true;
@@ -51,12 +53,13 @@ public final class AppendEntriesRequest implements Serializable {
         return this.term == that.term &&
                Objects.equals(this.logEntries, that.logEntries) &&
                this.prevLogTerm == that.prevLogTerm &&
-               this.prevLogIndex == that.prevLogIndex;
+               this.prevLogIndex == that.prevLogIndex &&
+               Objects.equals(this.committedIndex, that.committedIndex);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(term, logEntries, prevLogTerm, prevLogIndex);
+        return Objects.hash(term, logEntries, prevLogTerm, prevLogIndex, committedIndex);
     }
 
     @Override
@@ -65,8 +68,8 @@ public final class AppendEntriesRequest implements Serializable {
                "term=" + term + ", " +
                "logEntries=" + logEntries + ", " +
                "prevLogTerm=" + prevLogTerm + ", " +
-               "prevLogIndex=" + prevLogIndex + ']';
+               "prevLogIndex=" + prevLogIndex + ", " +
+               "committedIndex=" + committedIndex + ']';
     }
-
 
 }

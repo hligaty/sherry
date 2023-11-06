@@ -17,5 +17,7 @@ public interface LogRepository extends Closeable {
     
     List<LogEntry> getSuffix(long beginIndex);
 
+    List<LogEntry> getSuffix(long beginIndex, long endIndex);
+
     void truncateSuffix(long lastIndexKept);
 }

@@ -12,6 +12,7 @@ import org.rocksdb.WriteBatch;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Function;
 
 public class RocksDBRepository implements LogRepository {
 
@@ -75,7 +76,7 @@ public class RocksDBRepository implements LogRepository {
     public LogEntry getEntry(long index) {
         try {
             byte[] valueBytes = db.get(getKeyBytes(index));
-            return serializer.deserializeJavaObject(valueBytes, LogEntry.class);
+            return valueBytes == null ? null : serializer.deserializeJavaObject(valueBytes, LogEntry.class);
         } catch (RocksDBException e) {
             throw new StoreException(e);
         }
@@ -107,18 +108,30 @@ public class RocksDBRepository implements LogRepository {
 
     @Override
     public List<LogEntry> getSuffix(long beginIndex) {
+        return getSuffix(beginIndex, __ -> true);
+    }
+
+    public List<LogEntry> getSuffix(long beginIndex, Function<RocksIterator, Boolean> breakFunction) {
         try (final RocksIterator it = this.db.newIterator(this.totalOrderReadOptions)) {
             it.seek(getKeyBytes(beginIndex));
             if (!it.isValid() || serializer.deserializeJavaObject(it.key(), long.class) != beginIndex) {
-                return Collections.emptyList();
+                throw new StoreException("没有索引为%s开头的日志".formatted(beginIndex));
             }
             List<LogEntry> result = new ArrayList<>();
-            while (it.isValid()) {
+            while (it.isValid() && !breakFunction.apply(it)) {
                 result.add(serializer.deserializeJavaObject(it.value(), LogEntry.class));
                 it.next();
             }
             return result;
         }
+    }
+
+    @Override
+    public List<LogEntry> getSuffix(long beginIndex, long endIndex) {
+        if (endIndex - beginIndex < 1) {
+            return Collections.emptyList();
+        }
+        return getSuffix(beginIndex, it -> serializer.deserializeJavaObject(it.key(), long.class) > endIndex);
     }
 
     @Override
