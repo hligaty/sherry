@@ -5,7 +5,7 @@ import java.util.List;
 
 public interface LogRepository extends Closeable {
     
-    void appendEntry(LogEntry logEntry);
+    long appendEntry(LogEntry logEntry);
     
     void appendEntries(List<LogEntry> logEntries) throws StoreException;
     

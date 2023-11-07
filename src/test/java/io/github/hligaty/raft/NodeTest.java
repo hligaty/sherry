@@ -7,12 +7,15 @@ import com.alipay.remoting.rpc.protocol.RpcProtocol;
 import io.github.hligaty.BaseTest;
 import io.github.hligaty.raft.config.Configuration;
 import io.github.hligaty.raft.core.DefaultNode;
+import io.github.hligaty.raft.rpc.packet.Command;
 import io.github.hligaty.raft.util.Peer;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class NodeTest extends BaseTest {
 
@@ -28,12 +31,7 @@ class NodeTest extends BaseTest {
         Configuration configuration = new Configuration()
                 .setPeer(new Peer("localhost", port))
                 .addPeers(peers);
-        Node node = new DefaultNode(new StateMachine() {
-            @Override
-            public <T, R> R apply(T data) {
-                return null;
-            }
-        });
+        Node node = new DefaultNode(new KVStateMachine(String.valueOf(port)));
         node.setConfiguration(configuration);
         node.startup();
         sleep();
@@ -42,13 +40,18 @@ class NodeTest extends BaseTest {
     @Test
     public void set() throws RemotingException, InterruptedException {
         String address = "localhost";
-        int port = 4869;
+        int port = 4870;
         RpcClient rpcClient = new RpcClient();
         rpcClient.startup();
         Url url = new Url(address, port);
         url.setProtocol(RpcProtocol.PROTOCOL_CODE);
         KVStateMachine.Put put = new KVStateMachine.Put();
-        Object object = rpcClient.invokeSync(url, put, 0);
-        System.out.println(object);
+        put.key = "foo";
+        put.value = "bar";
+//        rpcClient.invokeSync(url, new Command(put), 5000);
+        KVStateMachine.Get get = new KVStateMachine.Get();
+        get.key = put.key;
+        String value = (String) rpcClient.invokeSync(url, new Command(get), 5000);
+        assertEquals(put.value, value);
     }
 }

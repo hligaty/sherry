@@ -12,9 +12,9 @@ import io.github.hligaty.raft.config.Configuration;
 import io.github.hligaty.raft.core.RaftServerService;
 import io.github.hligaty.raft.rpc.packet.AppendEntriesRequest;
 import io.github.hligaty.raft.rpc.packet.RequestVoteRequest;
+import io.github.hligaty.raft.rpc.packet.Command;
 import io.github.hligaty.raft.util.Peer;
 
-import java.io.Serializable;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
@@ -37,6 +37,9 @@ public class SofaBoltService implements RpcService {
         rpcServer.registerUserProcessor(
                 new SingleThreadExecutorSyncUserProcessor<>(AppendEntriesRequest.class.getName())
         );
+        rpcServer.registerUserProcessor(
+                new SingleThreadExecutorSyncUserProcessor<>(Command.class.getName())
+        );
         rpcServer.startup();
         this.rpcClient = new RpcClient();
         rpcClient.startup();
@@ -49,10 +52,10 @@ public class SofaBoltService implements RpcService {
                 yield raftServerService.handleRequestVoteRequest(requestVoteRequest);
             case AppendEntriesRequest appendEntriesRequest:
                 yield raftServerService.handleAppendEntriesRequest(appendEntriesRequest);
-            case Serializable serializable:
-                yield raftServerService.handleClientRequest(serializable);
+            case Command command:
+                yield raftServerService.apply(command);
             default:
-                throw new IllegalStateException("Unexpected value: " + request);
+                throw new IllegalStateException("Unexpected value: " + request.getClass());
         };
     }
 

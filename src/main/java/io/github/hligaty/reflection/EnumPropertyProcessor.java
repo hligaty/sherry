@@ -116,7 +116,7 @@ public class EnumPropertyProcessor {
         String fieldName = ctField.getName() + SUFFIX;
         CtMethod method = CtNewMethod.make(
                 """
-                        public String get%s() {
+                        public String getRequest%s() {
                             return %s.getEnumName(%s, %s.class, "%s");
                         }""".formatted(
                         CaseFormat.LOWER_CAMEL.to(CaseFormat.UPPER_CAMEL, fieldName),

@@ -14,10 +14,10 @@ public final class AppendEntriesRequest implements Serializable {
     private final List<LogEntry> logEntries;
     private final long prevLogTerm;
     private final long prevLogIndex;
-    private final Long committedIndex;
+    private final long committedIndex;
 
     public AppendEntriesRequest(long term, List<LogEntry> logEntries, long prevLogTerm,
-                                long prevLogIndex, Long committedIndex) {
+                                long prevLogIndex, long committedIndex) {
         this.term = term;
         this.logEntries = logEntries;
         this.prevLogTerm = prevLogTerm;
@@ -41,7 +41,7 @@ public final class AppendEntriesRequest implements Serializable {
         return prevLogIndex;
     }
 
-    public Long committedIndex() {
+    public long committedIndex() {
         return committedIndex;
     }
 
@@ -54,7 +54,7 @@ public final class AppendEntriesRequest implements Serializable {
                Objects.equals(this.logEntries, that.logEntries) &&
                this.prevLogTerm == that.prevLogTerm &&
                this.prevLogIndex == that.prevLogIndex &&
-               Objects.equals(this.committedIndex, that.committedIndex);
+               this.committedIndex == that.committedIndex;
     }
 
     @Override

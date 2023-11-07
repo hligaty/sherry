@@ -1,5 +1,7 @@
 package io.github.hligaty.raft.storage;
 
+import io.github.hligaty.raft.rpc.packet.Command;
+
 import java.io.Serial;
 import java.io.Serializable;
 import java.util.Objects;
@@ -8,22 +10,22 @@ public final class LogEntry implements Serializable {
     @Serial
     private static final long serialVersionUID = 0L;
     private final LogId logId;
-    private final Object object;
+    private final Command command;
 
     public LogEntry(
             LogId logId,
-            Object object
+            Command command
     ) {
         this.logId = logId;
-        this.object = object;
+        this.command = command;
     }
 
     public LogId logId() {
         return logId;
     }
 
-    public Object object() {
-        return object;
+    public Command command() {
+        return command;
     }
 
     @Override
@@ -32,22 +34,22 @@ public final class LogEntry implements Serializable {
         if (obj == null || obj.getClass() != this.getClass()) return false;
         var that = (LogEntry) obj;
         return Objects.equals(this.logId, that.logId) &&
-               Objects.equals(this.object, that.object);
+               Objects.equals(this.command, that.command);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(logId, object);
+        return Objects.hash(logId, command);
     }
 
     @Override
     public String toString() {
         return "LogEntry[" +
                "logId=" + logId + ", " +
-               "object=" + object + ']';
+               "object=" + command + ']';
     }
     
     public LogEntry setLogIndex(long logIndex) {
-        return new LogEntry(new LogId(logIndex, logId.term()), object);
+        return new LogEntry(new LogId(logIndex, logId.term()), command);
     }
 }

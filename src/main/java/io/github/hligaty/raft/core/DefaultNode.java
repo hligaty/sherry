@@ -11,6 +11,7 @@ import io.github.hligaty.raft.rpc.packet.AppendEntriesRequest;
 import io.github.hligaty.raft.rpc.packet.AppendEntriesResponse;
 import io.github.hligaty.raft.rpc.packet.RequestVoteRequest;
 import io.github.hligaty.raft.rpc.packet.RequestVoteResponse;
+import io.github.hligaty.raft.rpc.packet.Command;
 import io.github.hligaty.raft.storage.LogEntry;
 import io.github.hligaty.raft.storage.LogId;
 import io.github.hligaty.raft.storage.LogRepository;
@@ -24,6 +25,7 @@ import java.io.Serializable;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -153,19 +155,19 @@ public class DefaultNode implements Node, RaftServerService {
     }
 
     @Override
-    public <T extends Serializable, R extends Serializable> R handleClientRequest(T data) {
+    public <R extends Serializable> R apply(Command command) {
         lock.lock();
         try {
             if (state != State.LEADER) {
                 throw new ApplyException(ErrorType.NOT_LEADER);
             }
             long lastLogIndex = logRepository.getLastLogIndex();
-            LogEntry logEntry = new LogEntry(new LogId(lastLogIndex + 1, currTerm), data);
+            LogEntry logEntry = new LogEntry(new LogId(lastLogIndex + 1, currTerm), command);
             logRepository.appendEntry(logEntry);
             if (!sendEntries()) {
                 throw new ApplyException(ErrorType.REPLICATION_FAIL);
             }
-            R result = stateMachine.apply(data);
+            R result = stateMachine.apply(command);
             lastApplied = lastLogIndex;
             return result;
         } finally {
@@ -237,27 +239,33 @@ public class DefaultNode implements Node, RaftServerService {
                 解决这个问题: 网络分区后, 旧领导者的日志复制了少部分节点后才意识到不是领导者了(但日志已经过去了), 然后变成跟随者, 这个日志需要删除
                 但这部分日志只能由新领导者与分区的节点协商, 找到共同的日志 A 后删除日志 A 后面的日志, 并复制新领导者日志 A 后面的日志来解决
                  */
-                long localPrevLogTerm = logRepository.getEntry(request.prevLogIndex()).logId().term();
+                long localPrevLogTerm = Optional.ofNullable(logRepository.getEntry(request.prevLogIndex()))
+                        .map(logEntry -> logEntry.logId().term())
+                        .orElse(0L);
                 if (request.prevLogTerm() != localPrevLogTerm) {
-                    LOG.info("本地日志索引[{}]存在, 但其任期[{}]与追加的日志任期[{}]不同", request.prevLogIndex(), localPrevLogTerm, request.prevLogTerm());
-                    assert request.prevLogIndex() > localPrevLogTerm; // 分区后选举出来的新领导者一定比将要下线的老领导者任期大(由预投票保证)
                     lastLogIndex = logRepository.getLastLogIndex();
+                    LOG.info("本地日志索引[{}]的任期[{}]与追加的日志任期[{}]不同, 返回当前最大日志索引{}",
+                            request.prevLogIndex(), localPrevLogTerm, request.prevLogTerm(), lastLogIndex);
                     break;
                 }
                 if (request.logEntries().isEmpty()) {
-                    LOG.info("收到心跳或探测请求, 且与预期的前一个日志匹配, 任期[{}]", currTerm);
+                    LOG.info("收到心跳或探测请求, 且与预期的前一个日志的索引{}和任期{}匹配, 任期[{}]", request.prevLogIndex(), request.prevLogTerm(), currTerm);
                     success = true;
                     // 也返回最后的日志索引, 这样(response.lastLogIndex() + 1 < prevLogTerm 为 false)领导者就可以从后向前匹配了
                     lastLogIndex = logRepository.getLastLogIndex();
-                    // 把领导者之前提交的日志提交到状态机
+                    LOG.info("将索引{}和{}之间的日志应用到状态机", lastApplied, request.committedIndex());
                     for (LogEntry logEntry : logRepository.getSuffix(lastApplied, request.committedIndex())) {
-                        stateMachine.apply(logEntry);
+                        LOG.info("应用日志{}到状态机", logEntry.logId());
+                        stateMachine.apply(logEntry.command());
+                        LOG.info("更新最后应用日志索引从[{}]到[{}]", lastApplied, logEntry.logId().index());
+                        lastApplied = logEntry.logId().index() + 1;
                     }
-                    lastApplied = request.committedIndex();
                     break;
                 }
                 try {
+                    LOG.info("删除索引[{}]之后的日志", request.prevLogIndex());
                     logRepository.truncateSuffix(request.prevLogIndex());
+                    LOG.info("添加索引[{}]之后的日志[{}]", request.prevLogIndex(), request.logEntries());
                     logRepository.appendEntries(request.logEntries());
                     success = true;
                 } catch (Exception e) {
@@ -309,20 +317,20 @@ public class DefaultNode implements Node, RaftServerService {
                         try {
                             response = (RequestVoteResponse) rpcService.sendRequest(rpcRequest);
                         } catch (Exception e) {
-                            LOG.info("请求另一个节点投票时出错, 可能存在网络分区. 节点:[{}], 当前节点任期[{}]", peer, currTerm);
+                            LOG.info("节点:[{}]投票结果, 拒绝. 可能存在网络分区. 当前节点任期[{}]", peer, currTerm);
                             if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
                                 LOG.error("出错原因如下", e);
                             }
                             return;
                         }
-                        if (response.term() > term) { // 其他人的任期更高, 回退为跟随者
-                            LOG.info("其他节点[{}]任期[{}]更高, 当前节点准备回退为跟随者. 当前节点任期:[{}]", peer, response.term(), term);
+                        if (response.term() > term) {
+                            LOG.info("节点:[{}]投票结果, 拒绝. 任期[{}]更高. 当前节点任期:[{}]", peer, response.term(), term);
                             stepDown(response.term());
                         } else if (response.granted()) {
-                            LOG.info("其他节点[{}]赞同投票. 当前节点任期:[{}]", peer, term);
+                            LOG.info("节点:[{}]投票结果, 赞同. 当前节点任期:[{}]", peer, term);
                             voteCount.increment();
                         } else {
-                            LOG.info("其他节点[{}]任期[{}]不大, 但日志更多, 不投票. 当前节点任期:[{}], ", peer, response.term(), term);
+                            LOG.info("节点:[{}]投票结果, 拒绝. 任期[{}]不大, 但日志更多. 当前节点任期:[{}], ", peer, response.term(), term);
                         }
                     }
             );
@@ -357,40 +365,13 @@ public class DefaultNode implements Node, RaftServerService {
         electionTimer.stop();
         long nextIndex = logRepository.getLastLogIndex() + 1;
         configuration.getPeers().forEach(peer -> nextIndexes.put(peer, nextIndex));
-        long lastLogIndex = logRepository.getLastLogIndex();
-        LogEntry logEntry = new LogEntry(new LogId(lastLogIndex + 1, currTerm), null);
-        logRepository.appendEntry(logEntry);
-        if (!sendProbeRequest()) {
-            LOG.info("探测发现存在其他节点任期更高, 已下降为跟随者, 当前任期[{}]", currTerm);
-            return;
-        } else if (!sendEntries()) {
+        logRepository.appendEntry(new LogEntry(new LogId(0, currTerm), null));
+        if (sendEntries()) {
+            heartbeatTimer.start();
+        } else {
             LOG.info("成为领导者后第一次追加日志失败, 已下降为跟随者, 当前任期[{}]", currTerm);
-            return;
         }
-        heartbeatTimer.start();
-    }
-
-    private boolean sendProbeRequest() {
-        LongAdder voteCount = new LongAdder(); // 反对票计数
-        sendRequestAllOf(
-                peer -> {
-                    try {
-                        sendProbeRequest(peer);
-                    } catch (Exception e) {
-                        LOG.info("探测节点[{}]下一个要发送日志时发生错误, 可能出现网络分区, 当前节点任期[{}]", peer, currTerm);
-                        if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
-                            LOG.error("出错原因如下", e);
-                        }
-                        voteCount.increment();
-                    }
-                }
-        );
-        if (voteCount.sum() >= quorum()) {
-            LOG.info("探测发现不被大多数节点认可, 可能是网络分区, 下降为跟随者");
-            stepDown(currTerm);
-            return false;
-        }
-        return state == State.LEADER;
+        
     }
 
     private void sendProbeRequest(Peer peer) {
@@ -400,7 +381,7 @@ public class DefaultNode implements Node, RaftServerService {
         }
         long prevLogIndex = nextIndexes.get(peer) - 1;
         long prevLogTerm = logRepository.getEntry(prevLogIndex).logId().term();
-        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex, null);
+        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex, lastApplied);
         RpcRequest rpcRequest = new RpcRequest(peer, request, configuration.getHeartbeatTimeoutMs());
         AppendEntriesResponse response = (AppendEntriesResponse) rpcService.sendRequest(rpcRequest);
         if (response.success()) {
@@ -409,9 +390,9 @@ public class DefaultNode implements Node, RaftServerService {
             LOG.info("探测发现节点[{}]任期[{}]大于当前节点任期[{}], 下降为跟随者", peer, response.term(), currTerm);
             stepDown(response.term());
         } else {
-            if (response.lastLogIndex() + 1 < prevLogTerm) { // 比当前节点小说明索引为 prevLogIndex 的日志不存在, 用它的最新日志继续探测
+            if (response.lastLogIndex() + 1 < prevLogIndex) { // 比当前节点小说明索引为 prevLogIndex 的日志不存在, 用它的最新日志继续探测
                 LOG.info("探测发现预期的节点[{}]前一个日志[{}]不匹配, 且它最后一个日志索引[{}]更小, 用它最后一个日志再探测, 当前节点任期[{}]",
-                        peer, request.prevLogIndex(), response.lastLogIndex(), currTerm);
+                        peer, prevLogIndex, response.lastLogIndex(), currTerm);
                 nextIndexes.put(peer, response.lastLogIndex() + 1);
             } else {
                 LOG.info("探测发现预期的节点[{}]前一个日志[{}]不匹配, 且它最后一个日志索引[{}]更大, 向前再探测, 当前节点任期[{}]",
@@ -426,6 +407,7 @@ public class DefaultNode implements Node, RaftServerService {
 
     private boolean sendEntries() {
         LongAdder voteCount = new LongAdder(); // 赞同票计数
+        voteCount.increment();
         sendRequestAllOf(
                 peer -> {
                     try {
@@ -452,9 +434,11 @@ public class DefaultNode implements Node, RaftServerService {
             LOG.info("其他节点[{}]追加日志时发现当前节点任期[{}]已不是领导者, 结束", peer, currTerm);
             return;
         }
-        LogId prevLogId = logRepository.getEntry(nextIndexes.get(peer)).logId();
-        List<LogEntry> logEntries = logRepository.getSuffix(prevLogId.index());
-        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, logEntries, prevLogId.term(), prevLogId.index(), null);
+        long prevLogIndex = nextIndexes.get(peer) - 1;
+        LOG.info("发送追加日志请求, 节点[{}]前一条日志索引[{}], 已应用到状态机的日志索引[{}]", peer, prevLogIndex, lastApplied);
+        LogId prevLogId = logRepository.getEntry(prevLogIndex).logId();
+        List<LogEntry> logEntries = logRepository.getSuffix(prevLogIndex + 1);
+        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, logEntries, prevLogId.term(), prevLogId.index(), lastApplied);
         RpcRequest rpcRequest = new RpcRequest(peer, request, configuration.getHeartbeatTimeoutMs());
         AppendEntriesResponse response = (AppendEntriesResponse) rpcService.sendRequest(rpcRequest);
         if (response.success()) {
@@ -503,6 +487,8 @@ public class DefaultNode implements Node, RaftServerService {
                     peer -> {
                         long prevLogIndex = nextIndexes.get(peer) - 1;
                         long prevLogTerm = logRepository.getEntry(prevLogIndex).logId().term();
+                        LOG.info("发起心跳, 当前任期[{}], 前一条日志索引[{}], 最后应用日志索引[{}]", currTerm, prevLogIndex, lastApplied);
+                        // TODO: 2023/11/7 追加日志???
                         AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex, lastApplied);
                         RpcRequest rpcRequest = new RpcRequest(peer, request, configuration.getHeartbeatTimeoutMs());
                         AppendEntriesResponse response;
@@ -516,9 +502,24 @@ public class DefaultNode implements Node, RaftServerService {
                             voteCount.increment();
                             return;
                         }
-                        if (response.term() > currTerm) {
+                        if (response.success()) {
+                            LOG.info("心跳节点[{}]成功, 当前节点任期[{}], 将要发送的下一条日志索引[{}]", peer, currTerm, prevLogIndex + 1);
+                        } else if (response.term() > currTerm) {
                             LOG.info("心跳发现节点[{}]任期[{}]大于当前节点任期[{}], 下降为跟随者", peer, response.term(), currTerm);
                             stepDown(response.term());
+                        } else {
+                            if (response.lastLogIndex() + 1 < prevLogTerm) { // 比当前节点小说明索引为 prevLogIndex 的日志不存在, 用它的最新日志继续探测
+                                LOG.info("心跳发现预期的节点[{}]前一个日志[{}]不匹配, 且它最后一个日志索引[{}]更小, 用它最后一个日志再探测, 当前节点任期[{}]",
+                                        peer, request.prevLogIndex(), response.lastLogIndex(), currTerm);
+                                nextIndexes.put(peer, response.lastLogIndex() + 1);
+                            } else {
+                                LOG.info("心跳发现预期的节点[{}]前一个日志[{}]不匹配, 且它最后一个日志索引[{}]更大, 向前再探测, 当前节点任期[{}]",
+                                        peer, request.prevLogIndex(), response.lastLogIndex(), currTerm);
+                                nextIndexes.computeIfPresent(peer, (__, nextIndex) -> nextIndex - 1);
+                                assert nextIndexes.get(peer) >= 0; // 绝对不可能小于 0
+                            }
+                            LOG.info("心跳再次探测节点[{}], 任期[{}]", peer, currTerm);
+                            sendProbeRequest(peer);
                         }
                     }
             );

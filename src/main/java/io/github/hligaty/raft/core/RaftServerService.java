@@ -4,6 +4,7 @@ import io.github.hligaty.raft.rpc.packet.AppendEntriesRequest;
 import io.github.hligaty.raft.rpc.packet.AppendEntriesResponse;
 import io.github.hligaty.raft.rpc.packet.RequestVoteRequest;
 import io.github.hligaty.raft.rpc.packet.RequestVoteResponse;
+import io.github.hligaty.raft.rpc.packet.Command;
 
 import java.io.Serializable;
 
@@ -13,5 +14,5 @@ public interface RaftServerService {
 
     AppendEntriesResponse handleAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest);
 
-    <T extends Serializable, R extends Serializable> R handleClientRequest(T data) throws ApplyException;
+    <R extends Serializable> R apply(Command command) throws ApplyException;
 }

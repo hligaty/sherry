@@ -1,6 +1,7 @@
 package io.github.hligaty.raft.infrastructure;
 
 import io.github.hligaty.raft.config.Configuration;
+import io.github.hligaty.raft.rpc.packet.Command;
 import io.github.hligaty.raft.storage.LogEntry;
 import io.github.hligaty.raft.storage.LogId;
 import io.github.hligaty.raft.storage.LogRepository;
@@ -40,7 +41,7 @@ public class StoreTest {
         Configuration configuration = new Configuration();
         configuration.setPeer(new Peer("localhost", 21630));
         try (LogRepository logRepository = new RocksDBRepository(configuration)) {
-            LogEntry logEntry = new LogEntry(new LogId(0, 1), configuration);
+            LogEntry logEntry = new LogEntry(new LogId(0, 1), new Command("foo"));
             for (int i = 0; i < 3; i++) {
                 logRepository.appendEntry(logEntry);
             }
