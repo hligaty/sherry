@@ -1,7 +1,10 @@
 package io.github.hligaty.raft.config;
 
 import io.github.hligaty.raft.util.Peer;
+import io.github.hligaty.raft.util.PeerId;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -13,7 +16,7 @@ public class Configuration {
     private Peer peer;
 
     /**
-     * 其他节点地址
+     * 其他节点
      */
     private final List<Peer> peers = new ArrayList<>();
 
@@ -38,8 +41,8 @@ public class Configuration {
         return peer;
     }
 
-    public Configuration setPeer(Peer peer) {
-        this.peer = peer;
+    public Configuration setPeer(PeerId peerId) {
+        this.peer = new Peer(peerId);
         return this;
     }
 
@@ -47,14 +50,17 @@ public class Configuration {
         return peers;
     }
 
-    public Configuration addPeers(List<Peer> peers) {
-        this.peers.addAll(peers);
+    public Configuration addPeers(List<PeerId> peerIds) {
+        this.peers.addAll(peerIds.stream().map(Peer::new).toList());
         return this;
     }
 
-    public Configuration addPeers(Peer peer) {
-        peers.add(peer);
-        return this;
+    public long quorum() {
+        return peers.size() / 2 + 1;
+    }
+    
+    public Path getDataPath() {
+        return Paths.get("raft-node-" + peer.id().port());
     }
 
     public int getElectionTimeoutMs() {

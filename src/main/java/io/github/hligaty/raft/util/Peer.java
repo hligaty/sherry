@@ -1,48 +1,27 @@
 package io.github.hligaty.raft.util;
 
-import java.io.Serial;
-import java.io.Serializable;
-import java.util.Objects;
+public class Peer {
 
-public final class Peer implements Serializable {
-    @Serial
-    private static final long serialVersionUID = 0L;
-    private final String address;
-    private final int port;
+    private final PeerId id;
 
-    public Peer(
-            String address,
-            int port
-    ) {
-        this.address = address;
-        this.port = port;
+    /**
+     * 当前节点为领导者时使用, 记录要发送给这个跟随者的下一个日志
+     */
+    private long nextIndex;
+
+    public Peer(PeerId id) {
+        this.id = id;
     }
 
-    @Override
-    public String toString() {
-        return String.format("address=%s, port=%s", address, port);
+    public PeerId id() {
+        return id;
     }
 
-    public String address() {
-        return address;
+    public long nextIndex() {
+        return nextIndex;
     }
 
-    public int port() {
-        return port;
+    public void setNextIndex(long nextIndex) {
+        this.nextIndex = nextIndex;
     }
-
-    @Override
-    public boolean equals(Object obj) {
-        if (obj == this) return true;
-        if (obj == null || obj.getClass() != this.getClass()) return false;
-        var that = (Peer) obj;
-        return Objects.equals(this.address, that.address) &&
-               this.port == that.port;
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(address, port);
-    }
-
 }

@@ -46,10 +46,6 @@ public final class LogEntry implements Serializable {
     public String toString() {
         return "LogEntry[" +
                "logId=" + logId + ", " +
-               "object=" + command + ']';
-    }
-    
-    public LogEntry setLogIndex(long logIndex) {
-        return new LogEntry(new LogId(logIndex, logId.term()), command);
+               "command=" + command + ']';
     }
 }

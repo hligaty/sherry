@@ -1,23 +1,29 @@
 package io.github.hligaty.raft.storage;
 
 import io.fury.Fury;
-import io.github.hligaty.raft.config.Configuration;
 import io.github.hligaty.raft.rpc.packet.Command;
-import org.rocksdb.Options;
+import org.rocksdb.ColumnFamilyDescriptor;
+import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.DBOptions;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.WriteBatch;
+import org.rocksdb.WriteOptions;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 
 public class RocksDBRepository implements LogRepository {
-
-    private static final LogEntry FIRST_LOG_ENTRY = new LogEntry(new LogId(0, 0), new Command(null));
 
     private static final Fury serializer;
 
@@ -28,86 +34,116 @@ public class RocksDBRepository implements LogRepository {
         RocksDB.loadLibrary();
     }
 
-    private final RocksDB db;
+    private final Lock lock = new ReentrantLock();
 
-    private final Options options;
+    private final RocksDB db;
+    
+    private final DBOptions dbOptions;
+
+    private final WriteOptions writeOptions;
 
     private final ReadOptions totalOrderReadOptions;
 
+    private final ColumnFamilyHandle defaultHandle;
 
-    public RocksDBRepository(Configuration configuration) {
-        this.options = new Options().setCreateIfMissing(true);
-        try {
-            this.db = RocksDB.open(this.options, "./rocksdb-log-" + configuration.getPeer().port() + "/");
-            if (db.get(getKeyBytes(0)) == null) {
-                db.put(getKeyBytes(0), serializer.serializeJavaObject(FIRST_LOG_ENTRY));
-            }
-        } catch (RocksDBException e) {
-            throw new StoreException(e);
-        }
+    public RocksDBRepository(Path dir) {
+        this.dbOptions = new DBOptions().setCreateIfMissing(true);
+        this.writeOptions = new WriteOptions();
+        this.writeOptions.setSync(true);
         this.totalOrderReadOptions = new ReadOptions();
         this.totalOrderReadOptions.setTotalOrderSeek(true);
+        try {
+            Path logDir = dir.resolve("log-rocksdb");
+            if (Files.notExists(logDir)) {
+                Files.createDirectory(logDir);
+            }
+            List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+            this.db = RocksDB.open(dbOptions, logDir.toString(), List.of(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY)), columnFamilyHandles);
+            assert columnFamilyHandles.size() == 1;
+            this.defaultHandle = columnFamilyHandles.get(0);
+            if (getEntry(0) == null) {
+                db.put(defaultHandle, writeOptions, getKeyBytes(0), serializer.serializeJavaObject(new LogEntry(new LogId(0, 0), new Command(null))));
+            }
+        } catch (RocksDBException | IOException e) {
+            throw new StoreException(e);
+        }
     }
 
     @Override
-    public long appendEntry(LogEntry logEntry) {
+    public LogEntry appendEntry(long term, Command command) {
+        lock.lock();
         try {
             long lastLogIndex = getLastLogIndex();
-            logEntry = logEntry.setLogIndex(lastLogIndex + 1);
+            LogEntry logEntry = new LogEntry(new LogId(lastLogIndex + 1, term), command);
             byte[] valueBytes = serializer.serializeJavaObject(logEntry);
-            db.put(getKeyBytes(logEntry.logId().index()), valueBytes);
-            return logEntry.logId().index();
+            db.put(defaultHandle, writeOptions, getKeyBytes(logEntry.logId().index()), valueBytes);
+            return logEntry;
         } catch (RocksDBException e) {
             throw new StoreException(e);
+        } finally {
+            lock.unlock();
         }
     }
 
     private byte[] getKeyBytes(long index) {
-        return serializer.serializeJavaObject(index);
+        return ByteBuffer.allocate(8).putLong(index).array();
+    }
+
+    private long getKey(byte[] keyBytes) {
+        return ByteBuffer.wrap(keyBytes).getLong();
     }
 
     public void appendEntries(List<LogEntry> logEntries) {
         if (logEntries.isEmpty()) {
             return;
         }
+        lock.lock();
         try (WriteBatch batch = new WriteBatch()) {
             for (LogEntry logEntry : logEntries) {
                 byte[] valueBytes = serializer.serializeJavaObject(logEntry);
-                batch.put(getKeyBytes(logEntry.logId().index()), valueBytes);
+                batch.put(defaultHandle, getKeyBytes(logEntry.logId().index()), valueBytes);
             }
+            db.write(writeOptions, batch);
         } catch (RocksDBException e) {
             throw new StoreException(e);
+        } finally {
+            lock.unlock();
         }
     }
 
     @Override
     public LogEntry getEntry(long index) {
-        if (index == 0) {
-            return FIRST_LOG_ENTRY;
-        }
+        lock.lock();
         try {
-            byte[] valueBytes = db.get(getKeyBytes(index));
+            byte[] valueBytes = db.get(defaultHandle, totalOrderReadOptions, getKeyBytes(index));
             return valueBytes == null ? null : serializer.deserializeJavaObject(valueBytes, LogEntry.class);
         } catch (RocksDBException e) {
             throw new StoreException(e);
+        } finally {
+            lock.unlock();
         }
     }
 
     @Override
     public long getLastLogIndex() {
-        try (final RocksIterator it = this.db.newIterator(this.totalOrderReadOptions)) {
+        lock.lock();
+        try (final RocksIterator it = db.newIterator(defaultHandle, totalOrderReadOptions)) {
             it.seekToLast();
-            byte[] key = it.key();
-            return serializer.deserializeJavaObject(key, long.class);
+            return getKey(it.key());
+        } finally {
+            lock.unlock();
         }
     }
 
     @Override
     public LogId getLastLogId() {
-        try (final RocksIterator it = this.db.newIterator(this.totalOrderReadOptions)) {
+        lock.lock();
+        try (final RocksIterator it = db.newIterator(defaultHandle, totalOrderReadOptions)) {
             it.seekToLast();
             byte[] value = it.value();
             return serializer.deserializeJavaObject(value, LogEntry.class).logId();
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -117,10 +153,11 @@ public class RocksDBRepository implements LogRepository {
     }
 
     public List<LogEntry> getSuffix(long beginIndex, Function<RocksIterator, Boolean> breakFunction) {
-        try (final RocksIterator it = this.db.newIterator(this.totalOrderReadOptions)) {
+        lock.lock();
+        try (final RocksIterator it = db.newIterator(defaultHandle, totalOrderReadOptions)) {
             it.seek(getKeyBytes(beginIndex));
-            if (!it.isValid() || serializer.deserializeJavaObject(it.key(), long.class) != beginIndex) {
-                throw new StoreException("没有索引为%s开头的日志".formatted(beginIndex));
+            if (!it.isValid()) {
+                return Collections.emptyList();
             }
             List<LogEntry> result = new ArrayList<>();
             while (it.isValid() && !breakFunction.apply(it)) {
@@ -128,30 +165,37 @@ public class RocksDBRepository implements LogRepository {
                 it.next();
             }
             return result;
+        } finally {
+            lock.unlock();
         }
     }
 
     @Override
     public List<LogEntry> getSuffix(long beginIndex, long endIndex) {
-        if (beginIndex >= endIndex) {
+        if (beginIndex > endIndex) {
             return Collections.emptyList();
         }
-        return getSuffix(beginIndex, it -> serializer.deserializeJavaObject(it.key(), long.class) > endIndex);
+        return getSuffix(beginIndex, it -> getKey(it.key()) > endIndex);
     }
 
     @Override
     public void truncateSuffix(long lastIndexKept) {
+        lock.lock();
         try {
-            db.deleteRange(getKeyBytes(lastIndexKept + 1), getKeyBytes(getLastLogIndex() + 1));
+            db.deleteRange(defaultHandle, writeOptions, getKeyBytes(lastIndexKept + 1), getKeyBytes(getLastLogIndex() + 1));
         } catch (RocksDBException e) {
             throw new StoreException(e);
+        } finally {
+            lock.unlock();
         }
     }
 
     @Override
     public void close() {
         db.close();
-        options.close();
+        dbOptions.close();
+        writeOptions.close();
         totalOrderReadOptions.close();
+        defaultHandle.close();
     }
 }

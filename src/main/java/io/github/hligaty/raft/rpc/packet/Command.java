@@ -13,4 +13,11 @@ public class Command implements Serializable {
     public Serializable getData() {
         return data;
     }
+
+    @Override
+    public String toString() {
+        return "Command{" +
+               "data=" + data +
+               '}';
+    }
 }

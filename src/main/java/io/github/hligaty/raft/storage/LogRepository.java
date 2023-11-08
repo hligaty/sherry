@@ -1,11 +1,13 @@
 package io.github.hligaty.raft.storage;
 
+import io.github.hligaty.raft.rpc.packet.Command;
+
 import java.io.Closeable;
 import java.util.List;
 
 public interface LogRepository extends Closeable {
     
-    long appendEntry(LogEntry logEntry);
+    LogEntry appendEntry(long term, Command command);
     
     void appendEntries(List<LogEntry> logEntries) throws StoreException;
     

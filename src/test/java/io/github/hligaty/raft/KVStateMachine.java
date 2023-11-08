@@ -9,7 +9,10 @@ import org.rocksdb.RocksDBException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.io.Serializable;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class KVStateMachine implements StateMachine {
 
@@ -26,11 +29,13 @@ public class KVStateMachine implements StateMachine {
 
     private final RocksDB db;
 
-    public KVStateMachine(String dir) {
+    public KVStateMachine(Path dir) {
         Options options = new Options().setCreateIfMissing(true);
         try {
-            this.db = RocksDB.open(options, "./rocksdb-data-" + dir + "/");
-        } catch (RocksDBException e) {
+            Path path = dir.resolve("data-kv-rocksdb");
+            Files.createDirectories(path);
+            this.db = RocksDB.open(options, path.toString());
+        } catch (RocksDBException | IOException e) {
             throw new StoreException(e);
         }
     }

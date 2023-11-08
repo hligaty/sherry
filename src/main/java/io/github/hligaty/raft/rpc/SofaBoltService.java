@@ -13,7 +13,7 @@ import io.github.hligaty.raft.core.RaftServerService;
 import io.github.hligaty.raft.rpc.packet.AppendEntriesRequest;
 import io.github.hligaty.raft.rpc.packet.RequestVoteRequest;
 import io.github.hligaty.raft.rpc.packet.Command;
-import io.github.hligaty.raft.util.Peer;
+import io.github.hligaty.raft.util.PeerId;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -30,7 +30,7 @@ public class SofaBoltService implements RpcService {
     public SofaBoltService(Configuration configuration, RaftServerService raftServerService) {
         this.configuration = configuration;
         this.raftServerService = raftServerService;
-        RpcServer rpcServer = new RpcServer(configuration.getPeer().port());
+        RpcServer rpcServer = new RpcServer(configuration.getPeer().id().port());
         rpcServer.registerUserProcessor(
                 new SingleThreadExecutorSyncUserProcessor<>(RequestVoteRequest.class.getName())
         );
@@ -61,8 +61,8 @@ public class SofaBoltService implements RpcService {
 
     @Override
     public Object sendRequest(RpcRequest rpcRequest) throws RpcException {
-        Peer peer = rpcRequest.peer();
-        Url url = new Url(peer.address(), peer.port());
+        PeerId peerId = rpcRequest.peerId();
+        Url url = new Url(peerId.address(), peerId.port());
         url.setProtocol(RpcProtocol.PROTOCOL_CODE);
         url.setConnectTimeout(configuration.getRpcConnectTimeoutMs());
         try {
