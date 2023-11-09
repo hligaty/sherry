@@ -8,6 +8,10 @@ public interface RaftMetaRepository {
     
     PeerId getVotedFor();
 
+    long getCommittedIndex();
+
     void setTermAndVotedFor(long term, PeerId peerId);
+
+    void saveCommittedIndex(long committedIndex);
     
 }

@@ -23,6 +23,8 @@ public class SofaBoltService implements RpcService {
     private final Configuration configuration;
 
     private final RaftServerService raftServerService;
+    
+    private final RpcServer rpcServer;
 
     private final RpcClient rpcClient;
 
@@ -30,7 +32,7 @@ public class SofaBoltService implements RpcService {
     public SofaBoltService(Configuration configuration, RaftServerService raftServerService) {
         this.configuration = configuration;
         this.raftServerService = raftServerService;
-        RpcServer rpcServer = new RpcServer(configuration.getPeer().id().port());
+        this.rpcServer = new RpcServer(configuration.getPeer().id().port());
         rpcServer.registerUserProcessor(
                 new SingleThreadExecutorSyncUserProcessor<>(RequestVoteRequest.class.getName())
         );
@@ -70,6 +72,12 @@ public class SofaBoltService implements RpcService {
         } catch (RemotingException | InterruptedException e) {
             throw new RpcException(e);
         }
+    }
+
+    @Override
+    public void shutdown() {
+        rpcServer.shutdown();
+        rpcClient.shutdown();
     }
 
     private class SingleThreadExecutorSyncUserProcessor<T> extends SyncUserProcessor<T> {

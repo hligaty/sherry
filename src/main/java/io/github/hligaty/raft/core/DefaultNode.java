@@ -92,7 +92,7 @@ public class DefaultNode implements Node, RaftServerService {
     /**
      * 当前节点为领导者时使用, 记录最后已提交到状态机的日志索引
      */
-    private long lastApplied;
+    private long committedIndex;
 
     //----------------------------------------------------------------------------------------------------
 
@@ -133,6 +133,7 @@ public class DefaultNode implements Node, RaftServerService {
         raftMetaRepository = new LocalRaftMetaRepository(configuration.getDataPath());
         currTerm = raftMetaRepository.getTerm();
         votedId = raftMetaRepository.getVotedFor();
+        committedIndex = raftMetaRepository.getCommittedIndex();
         logRepository = new RocksDBRepository(configuration.getDataPath());
         lastLeaderTimestamp = System.currentTimeMillis();
         electionTimer = new RepeatedTimer("electionTimer") {
@@ -165,6 +166,16 @@ public class DefaultNode implements Node, RaftServerService {
     }
 
     @Override
+    public void shutdown() {
+        rpcService.shutdown();
+        try {
+            logRepository.close();
+        } catch (IOException e) {
+            throw new StoreException(e);
+        }
+    }
+
+    @Override
     public <R extends Serializable> R apply(Command command) {
         lock.lock();
         try {
@@ -183,8 +194,9 @@ public class DefaultNode implements Node, RaftServerService {
 
     private <R extends Serializable> R doApply(LogEntry logEntry) {
         R result = stateMachine.apply(logEntry.command());
-        lastApplied = logEntry.logId().index();
-        LOG.info("更新应用到状态机的日志索引为[{}]", lastApplied);
+        committedIndex = logEntry.logId().index();
+        raftMetaRepository.saveCommittedIndex(committedIndex);
+        LOG.info("更新应用到状态机的日志索引为[{}]", committedIndex);
         return result;
     }
 
@@ -196,11 +208,11 @@ public class DefaultNode implements Node, RaftServerService {
             boolean granted = false;
             do {
                 if (request.term() < currTerm) { // 比自己的任期小, 拒绝
-                    LOG.info("收到投票请求, 但任期[{}]比当前节点任期[{}]小, 拒绝", request.term(), currTerm);
+                    LOG.info("收到投票请求, 拒绝. 但任期[{}]比当前节点任期[{}]小", request.term(), currTerm);
                     break;
                 }
                 if (request.preVote() && isCurrentLeaderValid()) { // 预投票阶段领导者有效就拒绝. 正式投票时不判断, 因为预投票通过表示大部分节点都同意了
-                    LOG.info("收到预投票请求, 但领导者有效, 拒绝");
+                    LOG.info("收到预投票请求, 拒绝. 但领导者有效");
                     break;
                 }
                 if (!request.preVote() && request.term() > currTerm) {
@@ -208,7 +220,7 @@ public class DefaultNode implements Node, RaftServerService {
                     stepDown(request.term());
                 }
                 if (!request.preVote() && !votedId.isEmpty()) { // 正式投票时判断是否已经投过了. 预投票只是为了判断是否可以发起正式投票, 不用记录投了谁
-                    LOG.info("任期[{}]的正式投票已经投给了[{}], 拒绝其他投票", currTerm, votedId);
+                    LOG.info("收到正式投票请求, 拒绝. 任期[{}]的正式投票已经投给了[{}]", currTerm, votedId);
                     assert state == State.FOLLOWER;
                     break;
                 }
@@ -216,7 +228,9 @@ public class DefaultNode implements Node, RaftServerService {
                  * 候选者日志比当前节点日志少, 拒绝
                  * 这个是 Raft 的核心思想, 只有大多数节点复制日志成功才算成功, 因此, 基于该条件的投票机制也就能保证收到大多数票的那个节点有最新的日志
                  */
-                if (new LogId(request.lastLogIndex(), request.term()).compareTo(logRepository.getLastLogId()) < 0) {
+                LogId localLastLogId = logRepository.getLastLogId();
+                if (new LogId(request.term(), request.lastLogIndex()).compareTo(localLastLogId) < 0) {
+                    LOG.info("收到投票请求, 拒绝. 请求的日志[{}]比本地日志[{}]少", new LogId(request.term(), request.lastLogIndex()), localLastLogId);
                     break;
                 }
                 granted = true;
@@ -267,13 +281,8 @@ public class DefaultNode implements Node, RaftServerService {
                     // 也返回最后的日志索引, 这样(response.lastLogIndex() + 1 < prevLogTerm 为 false)领导者就可以从后向前匹配了
                     lastLogIndex = logRepository.getLastLogIndex();
                     long commitIndex = Math.min(request.committedIndex(), lastLogIndex);
-                    LOG.info("将索引{}和{}之间的日志应用到状态机", lastApplied + 1, commitIndex);
-                    for (LogEntry logEntry : logRepository.getSuffix(lastApplied + 1, commitIndex)) {
-                        LOG.info("应用日志{}到状态机", logEntry.logId());
-                        stateMachine.apply(logEntry.command());
-                        LOG.info("更新最后应用日志索引从[{}]到[{}]", lastApplied, logEntry.logId().index());
-                        lastApplied = logEntry.logId().index();
-                    }
+                    LOG.info("将索引{}和{}之间的日志应用到状态机", committedIndex + 1, commitIndex);
+                    logRepository.getSuffix(committedIndex + 1, commitIndex).forEach(this::doApply);
                     break;
                 }
                 try {
@@ -331,20 +340,20 @@ public class DefaultNode implements Node, RaftServerService {
                         try {
                             response = (RequestVoteResponse) rpcService.sendRequest(rpcRequest);
                         } catch (Exception e) {
-                            LOG.info("节点:[{}]投票结果, 拒绝. 可能存在网络分区. 当前节点任期[{}]", peer, currTerm);
+                            LOG.info("节点:[{}]投票结果, 拒绝. 可能存在网络分区. 当前节点任期[{}]", peer.id(), currTerm);
                             if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
                                 LOG.error("出错原因如下", e);
                             }
                             return;
                         }
                         if (response.term() > term) {
-                            LOG.info("节点:[{}]投票结果, 拒绝. 任期[{}]更高. 当前节点任期:[{}]", peer, response.term(), term);
+                            LOG.info("节点:[{}]投票结果, 拒绝. 任期[{}]更高. 当前节点任期:[{}]", peer.id(), response.term(), term);
                             stepDown(response.term());
                         } else if (response.granted()) {
-                            LOG.info("节点:[{}]投票结果, 赞同. 当前节点任期:[{}]", peer, term);
+                            LOG.info("节点:[{}]投票结果, 赞同. 当前节点任期:[{}]", peer.id(), term);
                             voteCount.increment();
                         } else {
-                            LOG.info("节点:[{}]投票结果, 拒绝. 任期[{}]不大, 但日志更多. 当前节点任期:[{}], ", peer, response.term(), term);
+                            LOG.info("节点:[{}]投票结果, 拒绝. 任期[{}]不大, 但日志更多. 当前节点任期:[{}], ", peer.id(), response.term(), term);
                         }
                     }
             );
@@ -393,7 +402,7 @@ public class DefaultNode implements Node, RaftServerService {
         }
         long prevLogIndex = peer.nextIndex() - 1;
         long prevLogTerm = logRepository.getEntry(prevLogIndex).logId().term();
-        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex, lastApplied);
+        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex, committedIndex);
         RpcRequest rpcRequest = new RpcRequest(peer.id(), request, configuration.getHeartbeatTimeoutMs());
         AppendEntriesResponse response = (AppendEntriesResponse) rpcService.sendRequest(rpcRequest);
         if (response.success()) {
@@ -449,9 +458,9 @@ public class DefaultNode implements Node, RaftServerService {
         long prevLogIndex = peer.nextIndex() - 1;
         LogEntry entry = logRepository.getEntry(prevLogIndex);
         long prevLogTerm = entry.logId().term();
-        LOG.info("发送追加日志请求, 节点[{}]日志从索引[{}]开始复制, 已应用到状态机的日志索引[{}]", peer.id(), prevLogIndex + 1, lastApplied);
+        LOG.info("发送追加日志请求, 节点[{}]日志从索引[{}]开始复制, 已应用到状态机的日志索引[{}]", peer.id(), prevLogIndex + 1, committedIndex);
         List<LogEntry> logEntries = logRepository.getSuffix(prevLogIndex + 1);
-        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, logEntries, prevLogTerm, prevLogIndex, lastApplied);
+        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, logEntries, prevLogTerm, prevLogIndex, committedIndex);
         RpcRequest rpcRequest = new RpcRequest(peer.id(), request, configuration.getHeartbeatTimeoutMs());
         AppendEntriesResponse response = (AppendEntriesResponse) rpcService.sendRequest(rpcRequest);
         if (response.success()) {

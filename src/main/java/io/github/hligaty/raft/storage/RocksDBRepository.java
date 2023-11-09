@@ -45,7 +45,7 @@ public class RocksDBRepository implements LogRepository {
     private final ReadOptions totalOrderReadOptions;
 
     private final ColumnFamilyHandle defaultHandle;
-
+    
     public RocksDBRepository(Path dir) {
         this.dbOptions = new DBOptions().setCreateIfMissing(true);
         this.writeOptions = new WriteOptions();
@@ -58,7 +58,10 @@ public class RocksDBRepository implements LogRepository {
                 Files.createDirectory(logDir);
             }
             List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
-            this.db = RocksDB.open(dbOptions, logDir.toString(), List.of(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY)), columnFamilyHandles);
+            List<ColumnFamilyDescriptor> columnFamilyDescriptors = Collections.singletonList(
+                    new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY)
+            );
+            this.db = RocksDB.open(dbOptions, logDir.toString(), columnFamilyDescriptors, columnFamilyHandles);
             assert columnFamilyHandles.size() == 1;
             this.defaultHandle = columnFamilyHandles.get(0);
             if (getEntry(0) == null) {
@@ -74,7 +77,7 @@ public class RocksDBRepository implements LogRepository {
         lock.lock();
         try {
             long lastLogIndex = getLastLogIndex();
-            LogEntry logEntry = new LogEntry(new LogId(lastLogIndex + 1, term), command);
+            LogEntry logEntry = new LogEntry(new LogId(term, lastLogIndex + 1), command);
             byte[] valueBytes = serializer.serializeJavaObject(logEntry);
             db.put(defaultHandle, writeOptions, getKeyBytes(logEntry.logId().index()), valueBytes);
             return logEntry;

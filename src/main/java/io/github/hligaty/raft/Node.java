@@ -7,4 +7,6 @@ public interface Node {
     void setConfiguration(Configuration configuration);
     
     void startup();
+    
+    void shutdown();
 }

@@ -8,12 +8,11 @@ import java.util.Objects;
 public final class LogId implements Serializable, Comparable<LogId> {
     @Serial
     private static final long serialVersionUID = 0L;
-    private final long index;
     private final long term;
+    private final long index;
 
     public LogId(
-            long index,
-            long term
+            long term, long index
     ) {
         this.index = index;
         this.term = term;
@@ -29,12 +28,12 @@ public final class LogId implements Serializable, Comparable<LogId> {
         }
     }
 
-    public long index() {
-        return index;
-    }
-
     public long term() {
         return term;
+    }
+
+    public long index() {
+        return index;
     }
 
     @Override
@@ -42,20 +41,18 @@ public final class LogId implements Serializable, Comparable<LogId> {
         if (obj == this) return true;
         if (obj == null || obj.getClass() != this.getClass()) return false;
         var that = (LogId) obj;
-        return this.index == that.index &&
-               this.term == that.term;
+        return this.term == that.term &&
+               this.index == that.index;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(index, term);
+        return Objects.hash(term, index);
     }
 
     @Override
     public String toString() {
-        return "LogId[" +
-               "index=" + index + ", " +
-               "term=" + term + ']';
+        return String.format("term=%s, index=%s", term, index);
     }
 
 }
