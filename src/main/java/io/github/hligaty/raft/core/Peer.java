@@ -1,4 +1,6 @@
-package io.github.hligaty.raft.util;
+package io.github.hligaty.raft.core;
+
+import io.github.hligaty.raft.rpc.packet.PeerId;
 
 public class Peer {
 

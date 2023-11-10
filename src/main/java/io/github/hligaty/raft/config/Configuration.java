@@ -1,7 +1,7 @@
 package io.github.hligaty.raft.config;
 
-import io.github.hligaty.raft.util.Peer;
-import io.github.hligaty.raft.util.PeerId;
+import io.github.hligaty.raft.core.Peer;
+import io.github.hligaty.raft.rpc.packet.PeerId;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;

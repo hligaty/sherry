@@ -1,11 +1,11 @@
 package io.github.hligaty.raft.infrastructure;
 
 import io.github.hligaty.raft.rpc.packet.Command;
-import io.github.hligaty.raft.storage.LocalRaftMetaRepository;
+import io.github.hligaty.raft.storage.impl.LocalRaftMetaRepository;
 import io.github.hligaty.raft.storage.LogRepository;
-import io.github.hligaty.raft.storage.RocksDBRepository;
+import io.github.hligaty.raft.storage.impl.RocksDBLogRepository;
 import io.github.hligaty.raft.storage.StoreException;
-import io.github.hligaty.raft.util.PeerId;
+import io.github.hligaty.raft.rpc.packet.PeerId;
 import org.junit.jupiter.api.Test;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
@@ -45,7 +45,7 @@ public class StoreTest {
     public void testRocksDBRepository() throws IOException {
         Path path = Paths.get("testRocksDBRepository");
         Files.createDirectories(path);
-        try (LogRepository logRepository = new RocksDBRepository(path)) {
+        try (LogRepository logRepository = new RocksDBLogRepository(path)) {
             logRepository.appendEntry(0, new Command(null));
             long start = System.currentTimeMillis();
             for (int i = 0; i < 100; i++) {

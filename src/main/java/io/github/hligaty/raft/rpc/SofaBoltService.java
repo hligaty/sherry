@@ -13,7 +13,7 @@ import io.github.hligaty.raft.core.RaftServerService;
 import io.github.hligaty.raft.rpc.packet.AppendEntriesRequest;
 import io.github.hligaty.raft.rpc.packet.RequestVoteRequest;
 import io.github.hligaty.raft.rpc.packet.Command;
-import io.github.hligaty.raft.util.PeerId;
+import io.github.hligaty.raft.rpc.packet.PeerId;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -76,8 +76,8 @@ public class SofaBoltService implements RpcService {
 
     @Override
     public void shutdown() {
-        rpcServer.shutdown();
         rpcClient.shutdown();
+        rpcServer.shutdown();
     }
 
     private class SingleThreadExecutorSyncUserProcessor<T> extends SyncUserProcessor<T> {

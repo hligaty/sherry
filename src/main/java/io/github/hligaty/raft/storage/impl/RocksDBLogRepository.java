@@ -1,7 +1,11 @@
-package io.github.hligaty.raft.storage;
+package io.github.hligaty.raft.storage.impl;
 
 import io.fury.Fury;
 import io.github.hligaty.raft.rpc.packet.Command;
+import io.github.hligaty.raft.storage.LogEntry;
+import io.github.hligaty.raft.storage.LogId;
+import io.github.hligaty.raft.storage.LogRepository;
+import io.github.hligaty.raft.storage.StoreException;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.DBOptions;
@@ -23,7 +27,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 
-public class RocksDBRepository implements LogRepository {
+public class RocksDBLogRepository implements LogRepository {
 
     private static final Fury serializer;
 
@@ -46,7 +50,7 @@ public class RocksDBRepository implements LogRepository {
 
     private final ColumnFamilyHandle defaultHandle;
     
-    public RocksDBRepository(Path dir) {
+    public RocksDBLogRepository(Path dir) {
         this.dbOptions = new DBOptions().setCreateIfMissing(true);
         this.writeOptions = new WriteOptions();
         this.writeOptions.setSync(true);

@@ -1,6 +1,8 @@
 package io.github.hligaty.raft.core;
 
-public enum ErrorType {
+import java.io.Serializable;
+
+public enum ErrorType implements Serializable {
     NOT_LEADER,
     REPLICATION_FAIL
 }

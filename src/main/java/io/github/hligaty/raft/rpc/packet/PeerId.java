@@ -1,4 +1,4 @@
-package io.github.hligaty.raft.util;
+package io.github.hligaty.raft.rpc.packet;
 
 import java.io.Serial;
 import java.io.Serializable;
@@ -7,7 +7,7 @@ import java.util.Objects;
 public final class PeerId implements Serializable {
     @Serial
     private static final long serialVersionUID = 0L;
-    private static final PeerId EMPTY_ID = new PeerId("", 0);
+    private static final PeerId EMPTY_ID = new PeerId("0.0.0.0", 0);
     private final String address;
     private final int port;
 
@@ -26,10 +26,17 @@ public final class PeerId implements Serializable {
     public boolean isEmpty() {
         return this.equals(emptyId());
     }
+    
+    public static PeerId parse(String s) {
+        String[] params = s.split(":");
+        String address = params[0];
+        int port = Integer.parseInt(params[1]);
+        return EMPTY_ID.address.equals(address) && EMPTY_ID.port == port ? EMPTY_ID : new PeerId(address, port);
+    }
 
     @Override
     public String toString() {
-        return String.format("address=%s, port=%s", address, port);
+        return String.format("%s:%s", address, port);
     }
 
     public String address() {

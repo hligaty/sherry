@@ -1,6 +1,6 @@
 package io.github.hligaty.raft.storage;
 
-import io.github.hligaty.raft.util.PeerId;
+import io.github.hligaty.raft.rpc.packet.PeerId;
 
 public interface RaftMetaRepository {
     

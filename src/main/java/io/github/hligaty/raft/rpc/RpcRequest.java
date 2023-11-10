@@ -1,6 +1,6 @@
 package io.github.hligaty.raft.rpc;
 
-import io.github.hligaty.raft.util.PeerId;
+import io.github.hligaty.raft.rpc.packet.PeerId;
 
 import java.io.Serializable;
 

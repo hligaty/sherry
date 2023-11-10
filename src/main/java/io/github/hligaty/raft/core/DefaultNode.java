@@ -12,14 +12,13 @@ import io.github.hligaty.raft.rpc.packet.AppendEntriesResponse;
 import io.github.hligaty.raft.rpc.packet.Command;
 import io.github.hligaty.raft.rpc.packet.RequestVoteRequest;
 import io.github.hligaty.raft.rpc.packet.RequestVoteResponse;
-import io.github.hligaty.raft.storage.LocalRaftMetaRepository;
 import io.github.hligaty.raft.storage.LogEntry;
 import io.github.hligaty.raft.storage.LogId;
 import io.github.hligaty.raft.storage.LogRepository;
-import io.github.hligaty.raft.storage.RocksDBRepository;
 import io.github.hligaty.raft.storage.StoreException;
-import io.github.hligaty.raft.util.Peer;
-import io.github.hligaty.raft.util.PeerId;
+import io.github.hligaty.raft.storage.impl.LocalRaftMetaRepository;
+import io.github.hligaty.raft.storage.impl.RocksDBLogRepository;
+import io.github.hligaty.raft.rpc.packet.PeerId;
 import io.github.hligaty.raft.util.RepeatedTimer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,10 +66,10 @@ public class DefaultNode implements Node, RaftServerService {
 
     private final StateMachine stateMachine;
 
-    // ----------------------------------------------------------------------------------------------------
+    // ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
 
     /**
-     * 全局锁, 控制 Raft 需要的状态等数据的变动. 两个分割线内的数据需要通过锁变更
+     * 全局锁, 控制 Raft 需要的状态等数据的变动. 两条线内的数据需要通过锁变更, 并且需要重启后也能恢复(状态就不需要了, 重启后肯定是跟随者)
      */
     private final Lock lock;
 
@@ -94,7 +93,7 @@ public class DefaultNode implements Node, RaftServerService {
      */
     private long committedIndex;
 
-    //----------------------------------------------------------------------------------------------------
+    //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
 
     /**
      * 领导者最后一个消息的时间戳
@@ -124,6 +123,7 @@ public class DefaultNode implements Node, RaftServerService {
 
     @Override
     public void startup() {
+        LOG.info("节点启动!!!");
         try {
             Files.createDirectories(configuration.getDataPath());
         } catch (IOException e) {
@@ -134,7 +134,7 @@ public class DefaultNode implements Node, RaftServerService {
         currTerm = raftMetaRepository.getTerm();
         votedId = raftMetaRepository.getVotedFor();
         committedIndex = raftMetaRepository.getCommittedIndex();
-        logRepository = new RocksDBRepository(configuration.getDataPath());
+        logRepository = new RocksDBLogRepository(configuration.getDataPath());
         lastLeaderTimestamp = System.currentTimeMillis();
         electionTimer = new RepeatedTimer("electionTimer") {
 
@@ -173,6 +173,7 @@ public class DefaultNode implements Node, RaftServerService {
         } catch (IOException e) {
             throw new StoreException(e);
         }
+        LOG.info("节点关闭!!!");
     }
 
     @Override
@@ -184,9 +185,14 @@ public class DefaultNode implements Node, RaftServerService {
             }
             LogEntry logEntry = logRepository.appendEntry(currTerm, command);
             if (!sendEntries()) {
+                // 客户端收到这个错误不代表就执行失败了, 之后还可能复制到大多数(可能是当前节点或复制成功的少数节点当选领导者后复制的)节点
                 throw new ApplyException(ErrorType.REPLICATION_FAIL);
             }
-            return doApply(logEntry);
+            List<LogEntry> logEntries = logEntry.logId().index() - committedIndex > 1
+                    ? logRepository.getSuffix(committedIndex, logEntry.logId().index())
+                    : Collections.singletonList(logEntry);
+            return logEntries.stream()
+                    .reduce(null, (__, entry) -> doApply(entry), (__, result) -> result);
         } finally {
             lock.unlock();
         }
@@ -195,6 +201,11 @@ public class DefaultNode implements Node, RaftServerService {
     private <R extends Serializable> R doApply(LogEntry logEntry) {
         R result = stateMachine.apply(logEntry.command());
         committedIndex = logEntry.logId().index();
+        /*
+        需要保证状态机执行命令和保存 committedIndex 是原子性的,
+        当然如果状态机满足幂等的话也就不需要持久化 committedIndex, 反正重放不影响状态机的状态,
+        比如 KV 数据库的 get/set/delete 执行多少次都没关系, 但计数器这种多加一次都不行
+         */
         raftMetaRepository.saveCommittedIndex(committedIndex);
         LOG.info("更新应用到状态机的日志索引为[{}]", committedIndex);
         return result;
@@ -229,10 +240,12 @@ public class DefaultNode implements Node, RaftServerService {
                  * 这个是 Raft 的核心思想, 只有大多数节点复制日志成功才算成功, 因此, 基于该条件的投票机制也就能保证收到大多数票的那个节点有最新的日志
                  */
                 LogId localLastLogId = logRepository.getLastLogId();
-                if (new LogId(request.term(), request.lastLogIndex()).compareTo(localLastLogId) < 0) {
-                    LOG.info("收到投票请求, 拒绝. 请求的日志[{}]比本地日志[{}]少", new LogId(request.term(), request.lastLogIndex()), localLastLogId);
+                if (new LogId(request.lastLogTerm(), request.lastLogIndex()).compareTo(localLastLogId) < 0) {
+                    LOG.info("收到投票请求, 拒绝. 请求的日志[{}]比本地日志[{}]少", new LogId(request.lastLogTerm(), request.lastLogIndex()), localLastLogId);
                     break;
                 }
+                LOG.info("收到投票请求, 同意. 当前和对方任期[{}] [{}], 当前和对方最后日志索引[{}] [{}]",
+                        currTerm, request.term(), localLastLogId, new LogId(request.lastLogTerm(), request.lastLogIndex()));
                 granted = true;
                 if (!request.preVote()) { // 正式投票阶段投票后更改状态为跟随者
                     stepDown(request.term());
@@ -311,16 +324,16 @@ public class DefaultNode implements Node, RaftServerService {
                 return;
             }
             long term;
+            LogId lastLogId = logRepository.getLastLogId();
             if (preVote) { // 正式投票时更改状态和当前任期的投票
-                LOG.info("发起预投票, 预选任期:[{}]", term = currTerm + 1); // 预投票不改变任期, 防止对称分区任期不断增加
+                LOG.info("发起预投票, 预选任期:[{}], 最后的日志索引[{}]", term = currTerm + 1, lastLogId); // 预投票不改变任期, 防止对称分区任期不断增加
             } else {
-                LOG.info("发起正式投票, 竞选任期:[{}]", term = ++currTerm); // 正式投票改变任期
+                LOG.info("发起正式投票, 竞选任期:[{}], 最后的日志索引[{}]", term = ++currTerm, lastLogId); // 正式投票改变任期
                 state = State.CANDIDATE;
                 votedId = configuration.getPeer().id();
             }
             LongAdder voteCount = new LongAdder(); // 赞成票计数
             voteCount.increment();
-            LogId lastLogId = logRepository.getLastLogId();
             RequestVoteRequest request = new RequestVoteRequest(
                     configuration.getPeer().id(),
                     term,
@@ -347,13 +360,13 @@ public class DefaultNode implements Node, RaftServerService {
                             return;
                         }
                         if (response.term() > term) {
-                            LOG.info("节点:[{}]投票结果, 拒绝. 任期[{}]更高. 当前节点任期:[{}]", peer.id(), response.term(), term);
+                            LOG.info("节点:[{}]投票结果, 拒绝. 任期[{}]更高. 当前节点任期:[{}]", peer.id(), response.term(), currTerm);
                             stepDown(response.term());
                         } else if (response.granted()) {
-                            LOG.info("节点:[{}]投票结果, 赞同. 当前节点任期:[{}]", peer.id(), term);
+                            LOG.info("节点:[{}]投票结果, 赞同. 当前节点任期:[{}]", peer.id(), currTerm);
                             voteCount.increment();
                         } else {
-                            LOG.info("节点:[{}]投票结果, 拒绝. 任期[{}]不大, 但日志更多. 当前节点任期:[{}], ", peer.id(), response.term(), term);
+                            LOG.info("节点:[{}]投票结果, 拒绝. 对方任期[{}]不大, 但本地日志索引[{}]少. 当前节点任期:[{}], ", peer.id(), response.term(), request.lastLogIndex(), currTerm);
                         }
                     }
             );
