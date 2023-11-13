@@ -9,7 +9,8 @@ public class ApplyException extends RuntimeException {
         this.errorType = errorType;
     }
 
-    public ErrorType getErrorType() {
-        return errorType;
+    @Override
+    public String getMessage() {
+        return errorType.name();
     }
 }

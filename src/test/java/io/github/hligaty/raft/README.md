@@ -12,6 +12,8 @@
 
 # 测试
 
+流程: 启动 3 个服务端节点, 启动 1 个客户端, 在客户端输入指令, 过程中随意停止和启动服务端节点, 判断指令执行结果是否与预期相同
+
 ## 选择实现
 
 基于 Raft 实现了两个功能，一个是 KV 数据库 [KVStateMachine](KVStateMachine.java)，另一个是计数器 [CounterStateMachine](CounterStateMachine.java)，在类  [RaftLocalClusterTest](RaftLocalClusterTest.java) 中修改 `rocksDBStateMachine` 变量来更改(更改后记得把 Raft 节点的所有数据删掉)。
@@ -40,8 +42,7 @@
 
 ## 启动客户端
 
-1. 运行 `io.github.hligaty.raft.RaftLocalClusterTest.RaftCli#main` 启动客户端，客户端通过键盘接受命令
-2. 集群选举出 Leader 后就可以使用 `raft set ${port}` 命令来设置客户端以后向该领导者发送命令（集群 Leader 变更后也要重新设置）
+运行 `io.github.hligaty.raft.RaftLocalClusterTest.RaftCli#main` 启动客户端，客户端通过键盘接受命令
 
 ## 客户端使用
 

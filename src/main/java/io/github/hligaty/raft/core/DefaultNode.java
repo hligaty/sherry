@@ -185,7 +185,10 @@ public class DefaultNode implements Node, RaftServerService {
             }
             LogEntry logEntry = logRepository.appendEntry(currTerm, command);
             if (!sendEntries()) {
-                // 客户端收到这个错误不代表就执行失败了, 之后还可能复制到大多数(可能是当前节点或复制成功的少数节点当选领导者后复制的)节点
+                /*
+                客户端收到这个错误不代表就执行失败了, 之后还可能复制到大多数(可能是当前节点或复制成功的少数节点当选领导者后复制的)节点.
+                实际中应该异步返回
+                 */
                 throw new ApplyException(ErrorType.REPLICATION_FAIL);
             }
             List<LogEntry> logEntries = logEntry.logId().index() - committedIndex > 1

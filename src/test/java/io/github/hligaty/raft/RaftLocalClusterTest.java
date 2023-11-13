@@ -5,11 +5,12 @@ import com.alipay.remoting.rpc.RpcClient;
 import io.github.hligaty.BaseTest;
 import io.github.hligaty.raft.config.Configuration;
 import io.github.hligaty.raft.core.DefaultNode;
+import io.github.hligaty.raft.core.ErrorType;
 import io.github.hligaty.raft.rpc.packet.Command;
+import io.github.hligaty.raft.rpc.packet.PeerId;
 import io.github.hligaty.raft.stateMachine.CounterStateMachine;
 import io.github.hligaty.raft.stateMachine.KVStateMachine;
 import io.github.hligaty.raft.stateMachine.RocksDBStateMachine;
-import io.github.hligaty.raft.rpc.packet.PeerId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,8 +25,6 @@ public class RaftLocalClusterTest extends BaseTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(RaftLocalClusterTest.class);
 
-    private static Integer leaderPort;
-
     private static final RpcClient rpcClient = new RpcClient();
 
 
@@ -35,7 +34,9 @@ public class RaftLocalClusterTest extends BaseTest {
             .map(port -> new PeerId("localhost", port))
             .toList();
 
-//    private static final RocksDBStateMachine rocksDBStateMachine = new CounterStateMachine();
+    private static Integer leaderPort;
+
+    //    private static final RocksDBStateMachine rocksDBStateMachine = new CounterStateMachine();
     private static final RocksDBStateMachine rocksDBStateMachine = new KVStateMachine();
 
     // ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑  配置  ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
@@ -63,10 +64,7 @@ public class RaftLocalClusterTest extends BaseTest {
                     String[] params = Arrays.stream(content.split(" "))
                             .filter(param -> !param.isBlank())
                             .toArray(String[]::new);
-                    if ("raft".equals(params[0]) && "set".equals(params[1])) {
-                        // 设置领导者命令: raft set 4869
-                        leaderPort = Integer.parseInt(params[2]);
-                    } else if (rocksDBStateMachine instanceof KVStateMachine) {
+                    if (rocksDBStateMachine instanceof KVStateMachine) {
                         executeKVCommand(params);
                     } else if (rocksDBStateMachine instanceof CounterStateMachine) {
                         executeCounter(params);
@@ -115,20 +113,20 @@ public class RaftLocalClusterTest extends BaseTest {
                 KVStateMachine.Set set = new KVStateMachine.Set();
                 set.key = args[1];
                 set.value = args[2];
-                sendCommand(leaderPort, set);
+                sendCommand(set);
                 break;
             }
             case "get": {
                 KVStateMachine.Get get = new KVStateMachine.Get();
                 get.key = args[1];
-                Object value = sendCommand(leaderPort, get);
+                Object value = sendCommand(get);
                 System.out.println(value);
                 break;
             }
             case "delete": {
                 KVStateMachine.Delete delete = new KVStateMachine.Delete();
                 delete.key = args[1];
-                sendCommand(leaderPort, delete);
+                sendCommand(delete);
                 break;
             }
             default:
@@ -140,13 +138,13 @@ public class RaftLocalClusterTest extends BaseTest {
         switch (args[0]) {
             case "increment": {
                 CounterStateMachine.Increment increment = new CounterStateMachine.Increment();
-                Object object = sendCommand(leaderPort, increment);
+                Object object = sendCommand(increment);
                 System.out.println(object);
                 break;
             }
             case "get": {
                 CounterStateMachine.Get get = new CounterStateMachine.Get();
-                Object value = sendCommand(leaderPort, get);
+                Object value = sendCommand(get);
                 System.out.println(value);
                 break;
             }
@@ -155,12 +153,25 @@ public class RaftLocalClusterTest extends BaseTest {
         }
     }
 
-    static Object sendCommand(Integer leaderPort, Serializable data) {
-        try {
-            return rpcClient.invokeSync("localhost:" + leaderPort, new Command(data), 5000);
-        } catch (RemotingException | InterruptedException e) {
-            LOG.error("Failed to execute remote invoke, leaderPort[{}], data[{}]", leaderPort, data, e);
-            return null;
+    static Object sendCommand(Serializable data) {
+        List<PeerId> peerIds = new ArrayList<>(allPeerIds);
+        if (leaderPort != null) { // 优先尝试刚才的集群领导者
+            peerIds.removeIf(peerId -> peerId.port() == leaderPort);
+            peerIds.add(0, new PeerId("localhost", leaderPort));
         }
+        for (PeerId peerId : peerIds) {
+            try {
+                Object result = rpcClient.invokeSync("localhost:" + peerId.port(), new Command(data), 5000);
+                leaderPort = peerId.port();
+                return result;
+            } catch (RemotingException | InterruptedException e) {
+                if (e.getMessage().contains(ErrorType.REPLICATION_FAIL.name())) {
+                    LOG.error("Failed to execute remote invoke, reason: replication fail, leaderPort[{}], data[{}]", leaderPort, data, e);
+                    return null;
+                }
+            }
+        }
+        LOG.error("Failed to execute remote invoke, reason: all nodes timeout or not found cluster leader, data[{}]", data);
+        return null;
     }
 }
