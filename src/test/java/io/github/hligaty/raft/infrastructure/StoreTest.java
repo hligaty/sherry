@@ -46,10 +46,10 @@ public class StoreTest {
         Path path = Paths.get("testRocksDBRepository");
         Files.createDirectories(path);
         try (LogRepository logRepository = new RocksDBLogRepository(path)) {
-            logRepository.appendEntry(0, new Command(null));
+            logRepository.appendEntry(0, Command.noop());
             long start = System.currentTimeMillis();
             for (int i = 0; i < 100; i++) {
-                logRepository.appendEntry(0, new Command(null));
+                logRepository.appendEntry(0, Command.noop());
             }
             System.out.println(System.currentTimeMillis() - start);
         }

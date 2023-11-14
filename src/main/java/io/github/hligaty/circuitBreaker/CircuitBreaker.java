@@ -86,8 +86,10 @@ public class CircuitBreaker {
             return;
         }
         failureCount.increment();
-        if (failureCount.sum() >= failureThreshold
-            && changeStatus(CircuitBreakerStatus.CLOSED, CircuitBreakerStatus.OPEN)) {
+        if (
+                failureCount.sum() >= failureThreshold
+                && changeStatus(CircuitBreakerStatus.CLOSED, CircuitBreakerStatus.OPEN)
+        ) {
             endTime = System.currentTimeMillis() + waitDurationInOpenState;
         }
     }

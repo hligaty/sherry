@@ -10,7 +10,7 @@ public class KVStateMachine extends RocksDBStateMachine {
     @Override
     public <R extends Serializable> R apply(Command command) {
         try {
-            switch (command.getData()) {
+            switch (command.data()) {
                 case Get getRequest -> {
                     byte[] bytes = db.get(serializer.serializeJavaObject(getRequest.key));
                     return bytes == null ? null : (R) serializer.deserialize(bytes);
@@ -36,13 +36,35 @@ public class KVStateMachine extends RocksDBStateMachine {
     public static class Set implements Serializable {
         public String key;
         public String value;
+
+        @Override
+        public String toString() {
+            return "Set{" +
+                   "key='" + key + '\'' +
+                   ", value='" + value + '\'' +
+                   '}';
+        }
     }
 
     public static class Get implements Serializable {
         public String key;
+
+        @Override
+        public String toString() {
+            return "Get{" +
+                   "key='" + key + '\'' +
+                   '}';
+        }
     }
 
     public static class Delete implements Serializable {
         public String key;
+
+        @Override
+        public String toString() {
+            return "Delete{" +
+                   "key='" + key + '\'' +
+                   '}';
+        }
     }
 }

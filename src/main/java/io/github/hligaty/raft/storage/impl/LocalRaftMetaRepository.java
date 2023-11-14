@@ -59,6 +59,13 @@ public class LocalRaftMetaRepository implements RaftMetaRepository {
     }
 
     private void save(long term, PeerId peerId, long committedIndex) {
+        if (
+                term == this.term
+                && peerId.equals(this.peerId)
+                && committedIndex == this.committedIndex
+        ) {
+            return;
+        }
         try {
             Files.write(path, List.of(
                     String.valueOf(term),

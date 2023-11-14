@@ -91,7 +91,7 @@ public class DefaultNode implements Node, RaftServerService {
     /**
      * 当前节点为领导者时使用, 记录最后已提交到状态机的日志索引
      */
-    private long committedIndex;
+    private long lastCommittedIndex;
 
     //↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
 
@@ -133,7 +133,7 @@ public class DefaultNode implements Node, RaftServerService {
         raftMetaRepository = new LocalRaftMetaRepository(configuration.getDataPath());
         currTerm = raftMetaRepository.getTerm();
         votedId = raftMetaRepository.getVotedFor();
-        committedIndex = raftMetaRepository.getCommittedIndex();
+        lastCommittedIndex = raftMetaRepository.getCommittedIndex();
         logRepository = new RocksDBLogRepository(configuration.getDataPath());
         lastLeaderTimestamp = System.currentTimeMillis();
         electionTimer = new RepeatedTimer("electionTimer") {
@@ -183,16 +183,17 @@ public class DefaultNode implements Node, RaftServerService {
             if (state != State.LEADER) {
                 throw new ApplyException(ErrorType.NOT_LEADER);
             }
-            LogEntry logEntry = logRepository.appendEntry(currTerm, command);
+            LogEntry logEntry = command.readOnly()
+                    ? new LogEntry(new LogId(currTerm, logRepository.getLastLogIndex() + 1), command)
+                    : logRepository.appendEntry(currTerm, command);
             if (!sendEntries()) {
                 /*
                 客户端收到这个错误不代表就执行失败了, 之后还可能复制到大多数(可能是当前节点或复制成功的少数节点当选领导者后复制的)节点.
-                实际中应该异步返回
                  */
                 throw new ApplyException(ErrorType.REPLICATION_FAIL);
             }
-            List<LogEntry> logEntries = logEntry.logId().index() - committedIndex > 1
-                    ? logRepository.getSuffix(committedIndex, logEntry.logId().index())
+            List<LogEntry> logEntries = logEntry.logId().index() - lastCommittedIndex > 1
+                    ? logRepository.getSuffix(lastCommittedIndex, logEntry.logId().index())
                     : Collections.singletonList(logEntry);
             return logEntries.stream()
                     .reduce(null, (__, entry) -> doApply(entry), (__, result) -> result);
@@ -203,14 +204,17 @@ public class DefaultNode implements Node, RaftServerService {
 
     private <R extends Serializable> R doApply(LogEntry logEntry) {
         R result = stateMachine.apply(logEntry.command());
-        committedIndex = logEntry.logId().index();
+        if (logEntry.command().readOnly()) {
+            return result;
+        }
+        lastCommittedIndex = logEntry.logId().index();
         /*
         需要保证状态机执行命令和保存 committedIndex 是原子性的,
         当然如果状态机满足幂等的话也就不需要持久化 committedIndex, 反正重放不影响状态机的状态,
         比如 KV 数据库的 get/set/delete 执行多少次都没关系, 但计数器这种多加一次都不行
          */
-        raftMetaRepository.saveCommittedIndex(committedIndex);
-        LOG.info("更新应用到状态机的日志索引为[{}]", committedIndex);
+        raftMetaRepository.saveCommittedIndex(lastCommittedIndex);
+        LOG.info("更新应用到状态机的日志索引为[{}]", lastCommittedIndex);
         return result;
     }
 
@@ -297,8 +301,8 @@ public class DefaultNode implements Node, RaftServerService {
                     // 也返回最后的日志索引, 这样(response.lastLogIndex() + 1 < prevLogTerm 为 false)领导者就可以从后向前匹配了
                     lastLogIndex = logRepository.getLastLogIndex();
                     long commitIndex = Math.min(request.committedIndex(), lastLogIndex);
-                    LOG.info("将索引{}和{}之间的日志应用到状态机", committedIndex + 1, commitIndex);
-                    logRepository.getSuffix(committedIndex + 1, commitIndex).forEach(this::doApply);
+                    LOG.info("将索引{}和{}之间的日志应用到状态机", lastCommittedIndex + 1, commitIndex);
+                    logRepository.getSuffix(lastCommittedIndex + 1, commitIndex).forEach(this::doApply);
                     break;
                 }
                 try {
@@ -403,7 +407,7 @@ public class DefaultNode implements Node, RaftServerService {
         configuration.getPeers().forEach(peer -> peer.setNextIndex(nextIndex));
         try {
             LOG.info("成为领导者后开始第一次追加日志");
-            apply(new Command(null));
+            apply(Command.noop());
         } catch (ApplyException e) {
             LOG.info("成为领导者后第一次追加日志失败, 已下降为跟随者, 当前任期[{}]", currTerm);
             return;
@@ -418,7 +422,7 @@ public class DefaultNode implements Node, RaftServerService {
         }
         long prevLogIndex = peer.nextIndex() - 1;
         long prevLogTerm = logRepository.getEntry(prevLogIndex).logId().term();
-        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex, committedIndex);
+        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex, lastCommittedIndex);
         RpcRequest rpcRequest = new RpcRequest(peer.id(), request, configuration.getHeartbeatTimeoutMs());
         AppendEntriesResponse response = (AppendEntriesResponse) rpcService.sendRequest(rpcRequest);
         if (response.success()) {
@@ -474,9 +478,9 @@ public class DefaultNode implements Node, RaftServerService {
         long prevLogIndex = peer.nextIndex() - 1;
         LogEntry entry = logRepository.getEntry(prevLogIndex);
         long prevLogTerm = entry.logId().term();
-        LOG.info("发送追加日志请求, 节点[{}]日志从索引[{}]开始复制, 已应用到状态机的日志索引[{}]", peer.id(), prevLogIndex + 1, committedIndex);
+        LOG.info("发送追加日志请求, 节点[{}]日志从索引[{}]开始复制, 已应用到状态机的日志索引[{}]", peer.id(), prevLogIndex + 1, lastCommittedIndex);
         List<LogEntry> logEntries = logRepository.getSuffix(prevLogIndex + 1);
-        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, logEntries, prevLogTerm, prevLogIndex, committedIndex);
+        AppendEntriesRequest request = new AppendEntriesRequest(currTerm, logEntries, prevLogTerm, prevLogIndex, lastCommittedIndex);
         RpcRequest rpcRequest = new RpcRequest(peer.id(), request, configuration.getHeartbeatTimeoutMs());
         AppendEntriesResponse response = (AppendEntriesResponse) rpcService.sendRequest(rpcRequest);
         if (response.success()) {

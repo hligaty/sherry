@@ -12,7 +12,7 @@ public class CounterStateMachine extends RocksDBStateMachine {
     @Override
     public <R extends Serializable> R apply(Command command) {
         try {
-            switch (command.getData()) {
+            switch (command.data()) {
                 case Increment ignored: {
                     byte[] valueBytes = db.get(COUNTER_IDX_KEY);
                     Long count = valueBytes == null ? 0L : serializer.deserializeJavaObject(valueBytes, Long.class);
@@ -32,8 +32,16 @@ public class CounterStateMachine extends RocksDBStateMachine {
     }
 
     public static class Increment implements Serializable {
+        @Override
+        public String toString() {
+            return "Increment{}";
+        }
     }
 
     public static class Get implements Serializable {
+        @Override
+        public String toString() {
+            return "Get{}";
+        }
     }
 }

@@ -14,7 +14,6 @@ import io.github.hligaty.raft.stateMachine.RocksDBStateMachine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -27,14 +26,13 @@ public class RaftLocalClusterTest extends BaseTest {
 
     private static final RpcClient rpcClient = new RpcClient();
 
+    private static Integer leaderPort;
 
     // ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓  配置  ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
 
     private static final List<PeerId> allPeerIds = Stream.of(4869, 4870, 4871)
             .map(port -> new PeerId("localhost", port))
             .toList();
-
-    private static Integer leaderPort;
 
     //    private static final RocksDBStateMachine rocksDBStateMachine = new CounterStateMachine();
     private static final RocksDBStateMachine rocksDBStateMachine = new KVStateMachine();
@@ -113,20 +111,20 @@ public class RaftLocalClusterTest extends BaseTest {
                 KVStateMachine.Set set = new KVStateMachine.Set();
                 set.key = args[1];
                 set.value = args[2];
-                sendCommand(set);
+                sendCommand(Command.write(set));
                 break;
             }
             case "get": {
                 KVStateMachine.Get get = new KVStateMachine.Get();
                 get.key = args[1];
-                Object value = sendCommand(get);
+                Object value = sendCommand(Command.read(get));
                 System.out.println(value);
                 break;
             }
             case "delete": {
                 KVStateMachine.Delete delete = new KVStateMachine.Delete();
                 delete.key = args[1];
-                sendCommand(delete);
+                sendCommand(Command.write(delete));
                 break;
             }
             default:
@@ -138,13 +136,13 @@ public class RaftLocalClusterTest extends BaseTest {
         switch (args[0]) {
             case "increment": {
                 CounterStateMachine.Increment increment = new CounterStateMachine.Increment();
-                Object object = sendCommand(increment);
+                Object object = sendCommand(Command.write(increment));
                 System.out.println(object);
                 break;
             }
             case "get": {
                 CounterStateMachine.Get get = new CounterStateMachine.Get();
-                Object value = sendCommand(get);
+                Object value = sendCommand(Command.read(get));
                 System.out.println(value);
                 break;
             }
@@ -153,7 +151,7 @@ public class RaftLocalClusterTest extends BaseTest {
         }
     }
 
-    static Object sendCommand(Serializable data) {
+    static Object sendCommand(Command command) {
         List<PeerId> peerIds = new ArrayList<>(allPeerIds);
         if (leaderPort != null) { // 优先尝试刚才的集群领导者
             peerIds.removeIf(peerId -> peerId.port() == leaderPort);
@@ -161,17 +159,19 @@ public class RaftLocalClusterTest extends BaseTest {
         }
         for (PeerId peerId : peerIds) {
             try {
-                Object result = rpcClient.invokeSync("localhost:" + peerId.port(), new Command(data), 5000);
+                Object result = rpcClient.invokeSync("localhost:" + peerId.port(), command, 5000);
                 leaderPort = peerId.port();
                 return result;
             } catch (RemotingException | InterruptedException e) {
-                if (e.getMessage().contains(ErrorType.REPLICATION_FAIL.name())) {
-                    LOG.error("Failed to execute remote invoke, reason: replication fail, leaderPort[{}], data[{}]", leaderPort, data, e);
+                if (e.getCause().getMessage().contains(ErrorType.REPLICATION_FAIL.name())) {
+                    LOG.error("Failed to execute remote invoke, reason: replication fail, port[{}], data[{}]", peerId.port(), command.data(), e);
                     return null;
+                } else if (!e.getCause().getMessage().contains(ErrorType.NOT_LEADER.name())) {
+                    LOG.error("Failed to execute remote invoke, reason: [{}], port[{}], data[{}]", e.getMessage(), peerId.port(), command.data());
                 }
             }
         }
-        LOG.error("Failed to execute remote invoke, reason: all nodes timeout or not found cluster leader, data[{}]", data);
+        LOG.error("Failed to execute remote invoke, reason: all nodes timeout or not found cluster leader, data[{}]", command.data());
         return null;
     }
 }
