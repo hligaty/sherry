@@ -183,6 +183,7 @@ public class DefaultNode implements Node, RaftServerService {
             if (state != State.LEADER) {
                 throw new ApplyException(ErrorType.NOT_LEADER);
             }
+            // TODO: 2023/11/14 实现跟随者的 ReadIndex Read, 也就是领导者写提交需要跟随者可见(由 Java 多线程 volatile 转变为分布式 server 的 "volatile", 和多进程一样), 只需要让跟随者
             LogEntry logEntry = command.readOnly()
                     ? new LogEntry(new LogId(currTerm, logRepository.getLastLogIndex() + 1), command)
                     : logRepository.appendEntry(currTerm, command);
@@ -192,8 +193,8 @@ public class DefaultNode implements Node, RaftServerService {
                  */
                 throw new ApplyException(ErrorType.REPLICATION_FAIL);
             }
-            List<LogEntry> logEntries = logEntry.logId().index() - lastCommittedIndex > 1
-                    ? logRepository.getSuffix(lastCommittedIndex, logEntry.logId().index())
+            List<LogEntry> logEntries = logEntry.index() - lastCommittedIndex > 1
+                    ? logRepository.getSuffix(lastCommittedIndex, logEntry.index())
                     : Collections.singletonList(logEntry);
             return logEntries.stream()
                     .reduce(null, (__, entry) -> doApply(entry), (__, result) -> result);
@@ -207,11 +208,12 @@ public class DefaultNode implements Node, RaftServerService {
         if (logEntry.command().readOnly()) {
             return result;
         }
-        lastCommittedIndex = logEntry.logId().index();
+        lastCommittedIndex = logEntry.index();
         /*
         需要保证状态机执行命令和保存 committedIndex 是原子性的,
         当然如果状态机满足幂等的话也就不需要持久化 committedIndex, 反正重放不影响状态机的状态,
-        比如 KV 数据库的 get/set/delete 执行多少次都没关系, 但计数器这种多加一次都不行
+        比如 KV 数据库的 get/set/delete 执行多少次都没关系, 但计数器这种多加一次都不行.
+        当然还有一点好处是从 committedIndex 处理日志更快
          */
         raftMetaRepository.saveCommittedIndex(lastCommittedIndex);
         LOG.info("更新应用到状态机的日志索引为[{}]", lastCommittedIndex);
@@ -287,7 +289,7 @@ public class DefaultNode implements Node, RaftServerService {
                 但这部分日志只能由新领导者与分区的节点协商, 找到共同的日志 A 后删除日志 A 后面的日志, 并复制新领导者日志 A 后面的日志来解决
                  */
                 long localPrevLogTerm = Optional.ofNullable(logRepository.getEntry(request.prevLogIndex()))
-                        .map(logEntry -> logEntry.logId().term())
+                        .map(LogEntry::term)
                         .orElse(0L);
                 if (request.prevLogTerm() != localPrevLogTerm) {
                     lastLogIndex = logRepository.getLastLogIndex();
@@ -421,7 +423,7 @@ public class DefaultNode implements Node, RaftServerService {
             return;
         }
         long prevLogIndex = peer.nextIndex() - 1;
-        long prevLogTerm = logRepository.getEntry(prevLogIndex).logId().term();
+        long prevLogTerm = logRepository.getEntry(prevLogIndex).term();
         AppendEntriesRequest request = new AppendEntriesRequest(currTerm, Collections.emptyList(), prevLogTerm, prevLogIndex, lastCommittedIndex);
         RpcRequest rpcRequest = new RpcRequest(peer.id(), request, configuration.getHeartbeatTimeoutMs());
         AppendEntriesResponse response = (AppendEntriesResponse) rpcService.sendRequest(rpcRequest);
@@ -476,19 +478,18 @@ public class DefaultNode implements Node, RaftServerService {
             return;
         }
         long prevLogIndex = peer.nextIndex() - 1;
-        LogEntry entry = logRepository.getEntry(prevLogIndex);
-        long prevLogTerm = entry.logId().term();
+        long prevLogTerm = logRepository.getEntry(prevLogIndex).term();
         LOG.info("发送追加日志请求, 节点[{}]日志从索引[{}]开始复制, 已应用到状态机的日志索引[{}]", peer.id(), prevLogIndex + 1, lastCommittedIndex);
         List<LogEntry> logEntries = logRepository.getSuffix(prevLogIndex + 1);
         AppendEntriesRequest request = new AppendEntriesRequest(currTerm, logEntries, prevLogTerm, prevLogIndex, lastCommittedIndex);
         RpcRequest rpcRequest = new RpcRequest(peer.id(), request, configuration.getHeartbeatTimeoutMs());
         AppendEntriesResponse response = (AppendEntriesResponse) rpcService.sendRequest(rpcRequest);
         if (response.success()) {
-            if (!logEntries.isEmpty()) {
-                long newNextIndex = logEntries.getLast().logId().index() + 1;
-                LOG.info("追加日志请求成功, 更新节点[{}]下一次开始发送的日志索引为[{}]", peer.id(), newNextIndex);
-                peer.setNextIndex(newNextIndex);
-            }
+            long newNextIndex = logEntries.isEmpty()
+                    ? peer.nextIndex()
+                    : logEntries.getLast().index() + 1;
+            LOG.info("追加日志请求成功, 更新节点[{}]下一次开始发送的日志索引为[{}]", peer.id(), newNextIndex);
+            peer.setNextIndex(newNextIndex);
             return;
         }
         if (response.term() > currTerm) {

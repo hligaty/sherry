@@ -15,4 +15,6 @@ public interface RaftServerService {
     AppendEntriesResponse handleAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest);
 
     <R extends Serializable> R apply(Command command) throws ApplyException;
+    
+    
 }

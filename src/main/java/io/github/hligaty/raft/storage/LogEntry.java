@@ -27,6 +27,14 @@ public final class LogEntry implements Serializable {
     public Command command() {
         return command;
     }
+    
+    public long term() {
+        return logId.term();
+    }
+
+    public long index() {
+        return logId.index();
+    }
 
     @Override
     public boolean equals(Object obj) {

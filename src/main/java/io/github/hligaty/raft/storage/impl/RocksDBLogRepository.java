@@ -83,7 +83,7 @@ public class RocksDBLogRepository implements LogRepository {
             long lastLogIndex = getLastLogIndex();
             LogEntry logEntry = new LogEntry(new LogId(term, lastLogIndex + 1), command);
             byte[] valueBytes = serializer.serializeJavaObject(logEntry);
-            db.put(defaultHandle, writeOptions, getKeyBytes(logEntry.logId().index()), valueBytes);
+            db.put(defaultHandle, writeOptions, getKeyBytes(logEntry.index()), valueBytes);
             return logEntry;
         } catch (RocksDBException e) {
             throw new StoreException(e);
@@ -108,7 +108,7 @@ public class RocksDBLogRepository implements LogRepository {
         try (WriteBatch batch = new WriteBatch()) {
             for (LogEntry logEntry : logEntries) {
                 byte[] valueBytes = serializer.serializeJavaObject(logEntry);
-                batch.put(defaultHandle, getKeyBytes(logEntry.logId().index()), valueBytes);
+                batch.put(defaultHandle, getKeyBytes(logEntry.index()), valueBytes);
             }
             db.write(writeOptions, batch);
         } catch (RocksDBException e) {

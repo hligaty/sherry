@@ -157,10 +157,14 @@ public class RaftLocalClusterTest extends BaseTest {
             peerIds.removeIf(peerId -> peerId.port() == leaderPort);
             peerIds.add(0, new PeerId("localhost", leaderPort));
         }
+//        if (command.readOnly()) { // 如果是读命令就随机选一个处理
+//            Collections.shuffle(peerIds);
+//        }
         for (PeerId peerId : peerIds) {
             try {
                 Object result = rpcClient.invokeSync("localhost:" + peerId.port(), command, 5000);
                 leaderPort = peerId.port();
+                System.out.printf("Succeed to execute remote invoke. port[%s]%n", peerId.port());
                 return result;
             } catch (RemotingException | InterruptedException e) {
                 if (e.getCause().getMessage().contains(ErrorType.REPLICATION_FAIL.name())) {
