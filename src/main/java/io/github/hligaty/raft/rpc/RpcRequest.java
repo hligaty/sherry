@@ -5,7 +5,7 @@ import io.github.hligaty.raft.rpc.packet.PeerId;
 import java.io.Serializable;
 
 public record RpcRequest(
-        PeerId peerId,
+        PeerId remoteId,
         Object request,
         int timeoutMillis
 ) implements Serializable {

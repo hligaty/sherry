@@ -13,7 +13,7 @@ public class Configuration {
     /**
      * 当前节点地址
      */
-    private Peer peer;
+    private PeerId serverId;
 
     /**
      * 其他节点
@@ -37,12 +37,12 @@ public class Configuration {
     
     private int rpcRequestTimeoutMs = 5000;
     
-    public Peer getPeer() {
-        return peer;
+    public PeerId getServerId() {
+        return serverId;
     }
 
-    public Configuration setPeer(PeerId peerId) {
-        this.peer = new Peer(peerId);
+    public Configuration setServerId(PeerId serverId) {
+        this.serverId = serverId;
         return this;
     }
 
@@ -60,7 +60,7 @@ public class Configuration {
     }
     
     public Path getDataPath() {
-        return Paths.get("raft-node-" + peer.id().port());
+        return Paths.get("raft-node-" + serverId.port());
     }
 
     public int getElectionTimeoutMs() {

@@ -69,7 +69,7 @@ public class RocksDBLogRepository implements LogRepository {
             assert columnFamilyHandles.size() == 1;
             this.defaultHandle = columnFamilyHandles.get(0);
             if (getEntry(0) == null) {
-                db.put(defaultHandle, writeOptions, getKeyBytes(0), serializer.serializeJavaObject(new LogEntry(new LogId(0, 0), Command.noop())));
+                db.put(defaultHandle, writeOptions, getKeyBytes(0), serializer.serializeJavaObject(new LogEntry(LogId.zero(), Command.noop())));
             }
         } catch (RocksDBException | IOException e) {
             throw new StoreException(e);

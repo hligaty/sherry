@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Scanner;
 import java.util.stream.Stream;
@@ -34,8 +35,8 @@ public class RaftLocalClusterTest extends BaseTest {
             .map(port -> new PeerId("localhost", port))
             .toList();
 
-    //    private static final RocksDBStateMachine rocksDBStateMachine = new CounterStateMachine();
-    private static final RocksDBStateMachine rocksDBStateMachine = new KVStateMachine();
+    private static final RocksDBStateMachine rocksDBStateMachine = new CounterStateMachine();
+//    private static final RocksDBStateMachine rocksDBStateMachine = new KVStateMachine();
 
     // ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑  配置  ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
 
@@ -95,7 +96,7 @@ public class RaftLocalClusterTest extends BaseTest {
             List<PeerId> peerIds = new ArrayList<>(allPeerIds);
             peerIds.removeIf(peer -> peer.port() == port);
             Configuration configuration = new Configuration()
-                    .setPeer(new PeerId("localhost", port))
+                    .setServerId(new PeerId("localhost", port))
                     .addPeers(peerIds);
             rocksDBStateMachine.startup(configuration.getDataPath());
             Node node = new DefaultNode(rocksDBStateMachine);
@@ -157,14 +158,16 @@ public class RaftLocalClusterTest extends BaseTest {
             peerIds.removeIf(peerId -> peerId.port() == leaderPort);
             peerIds.add(0, new PeerId("localhost", leaderPort));
         }
-//        if (command.readOnly()) { // 如果是读命令就随机选一个处理
-//            Collections.shuffle(peerIds);
-//        }
+        if (command.readOnly()) { // 如果是读命令就随机选一个处理
+            Collections.shuffle(peerIds);
+        }
         for (PeerId peerId : peerIds) {
             try {
+                long start = System.currentTimeMillis();
                 Object result = rpcClient.invokeSync("localhost:" + peerId.port(), command, 5000);
                 leaderPort = peerId.port();
-                System.out.printf("Succeed to execute remote invoke. port[%s]%n", peerId.port());
+                System.out.printf("Succeed to execute remote invoke. port[%s], leaderPort[%s], time[%s]%n",
+                        peerId.port(), leaderPort, System.currentTimeMillis() - start);
                 return result;
             } catch (RemotingException | InterruptedException e) {
                 if (e.getCause().getMessage().contains(ErrorType.REPLICATION_FAIL.name())) {

@@ -8,6 +8,7 @@ import java.util.Objects;
 public final class LogId implements Serializable, Comparable<LogId> {
     @Serial
     private static final long serialVersionUID = 0L;
+    private static final LogId ZERO = new LogId(0, 0);
     private final long term;
     private final long index;
 
@@ -34,6 +35,10 @@ public final class LogId implements Serializable, Comparable<LogId> {
 
     public long index() {
         return index;
+    }
+    
+    public static LogId zero() {
+        return ZERO;
     }
 
     @Override

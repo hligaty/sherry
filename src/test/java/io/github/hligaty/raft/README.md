@@ -1,6 +1,8 @@
 # 简介
 
-实现了 Leader 选举和日志复制，代码在 `io.github.hligaty.raft` 下，具体包作用：
+实现了 Leader 选举和日志复制的 Raft Demo，包括预投票和读索引读（只是 Demo，有很多偷懒实现，所以和真正用于生产的是不完全一样的）
+
+代码在 `io.github.hligaty.raft` 下，具体包作用：
 
 |  包名   |              作用               |
 | :-----: | :-----------------------------: |
@@ -58,14 +60,19 @@
 
 ```
 Sofa-Middleware-Log SLF4J Warn : No log util is usable, Default app logger will be used.
-raft set 4870
+set hello world
+Succeed to execute remote invoke. port[4871], leaderPort[4871], time[142]
 Please enter the command:
-set foo bar
+get hello
+Succeed to execute remote invoke. port[4869], leaderPort[4869], time[23]
+world
 Please enter the command:
-get foo
-bar
+delete hello
+Succeed to execute remote invoke. port[4871], leaderPort[4871], time[112]
 Please enter the command:
-delete foo
+get hello
+Succeed to execute remote invoke. port[4869], leaderPort[4869], time[6]
+null
 Please enter the command:
 ```
 
@@ -82,14 +89,56 @@ Please enter the command:
 Sofa-Middleware-Log SLF4J Warn : No log util is usable, Default app logger will be used.
 raft set 4870
 Please enter the command:
+Succeed to execute remote invoke. port[4869], leaderPort[4869], time[226]
 increment
 1
 Please enter the command:
 increment
+Succeed to execute remote invoke. port[4869], leaderPort[4869], time[87]
 2
 Please enter the command:
 get
-24
+Succeed to execute remote invoke. port[4869], leaderPort[4869], time[2]
+2
+Please enter the command:
+get
+Succeed to execute remote invoke. port[4870], leaderPort[4870], time[4]
+2
+Please enter the command:
+```
+
+### 其他
+
+客户端出现 REPLICATION_FAIL 不代表执行失败，之后还是有可能执行成功的，可以再查一次，比如下面：
+
+```
+Sofa-Middleware-Log SLF4J Warn : No log util is usable, Default app logger will be used.
+set hello world
+2023/11/15 17:30:08, 068 [ERROR]  Failed to execute remote invoke, reason: replication fail, port[4869], data[Set{key='hello', value='world'}]
+com.alipay.remoting.rpc.exception.InvokeServerException: Server exception! Please check the server log, the address is 127.0.0.1:4869, id=1, ServerErrorMsg:null
+	at com.alipay.remoting.rpc.RpcResponseResolver.preProcess(RpcResponseResolver.java:124)
+	at com.alipay.remoting.rpc.RpcResponseResolver.resolveResponseObject(RpcResponseResolver.java:54)
+	at com.alipay.remoting.rpc.RpcRemoting.invokeSync(RpcRemoting.java:186)
+	at com.alipay.remoting.rpc.RpcClientRemoting.invokeSync(RpcClientRemoting.java:72)
+	at com.alipay.remoting.rpc.RpcRemoting.invokeSync(RpcRemoting.java:143)
+	at com.alipay.remoting.rpc.RpcClient.invokeSync(RpcClient.java:219)
+	at io.github.hligaty.raft.RaftLocalClusterTest.sendCommand(RaftLocalClusterTest.java:167)
+	at io.github.hligaty.raft.RaftLocalClusterTest.executeKVCommand(RaftLocalClusterTest.java:115)
+	at io.github.hligaty.raft.RaftLocalClusterTest$RaftCli.main(RaftLocalClusterTest.java:67)
+Caused by: com.alipay.remoting.rpc.exception.RpcServerException: [Server]OriginErrorMsg: io.github.hligaty.raft.core.ApplyException: REPLICATION_FAIL. AdditionalErrorMsg: SYNC process rpc request failed in RpcRequestProcessor, id=1
+	at io.github.hligaty.raft.core.DefaultNode.apply(DefaultNode.java:204)
+	at io.github.hligaty.raft.rpc.SofaBoltService.handleRequest(SofaBoltService.java:64)
+	at io.github.hligaty.raft.rpc.SofaBoltService$SingleThreadExecutorSyncUserProcessor.handleRequest(SofaBoltService.java:104)
+	at com.alipay.remoting.rpc.protocol.RpcRequestProcessor.dispatchToUserProcessor(RpcRequestProcessor.java:252)
+	at com.alipay.remoting.rpc.protocol.RpcRequestProcessor.doProcess(RpcRequestProcessor.java:146)
+	at com.alipay.remoting.rpc.protocol.RpcRequestProcessor$ProcessTask.run(RpcRequestProcessor.java:393)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Please enter the command:
+get hello
+Succeed to execute remote invoke. port[4871], leaderPort[4871], time[13]
+world
 Please enter the command:
 ```
 
