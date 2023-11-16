@@ -567,7 +567,7 @@ public class DefaultNode implements Node, RaftServerService {
             LOG.info("其他节点[{}]任期[{}]追加日志失败, 发送探测请求后重新追加, 当前节点任期[{}]", peer.id(), response.term(), currTerm);
             sendProbeRequest(peer);
             if (!isHeartbeat) {
-                sendEntries(peer, isHeartbeat);
+                sendEntries(peer, false);
             }
         }
     }
