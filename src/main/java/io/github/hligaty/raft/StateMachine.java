@@ -6,6 +6,6 @@ import java.io.Serializable;
 
 public interface StateMachine {
 
-    <R extends Serializable> R apply(Command command);
+    <R extends Serializable> R apply(Command command) throws Exception;
 
 }

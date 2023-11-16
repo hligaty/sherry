@@ -1,6 +1,7 @@
 package io.github.hligaty.raft.stateMachine;
 
 import io.github.hligaty.raft.rpc.packet.Command;
+import org.rocksdb.RocksDBException;
 
 import java.io.Serializable;
 
@@ -8,28 +9,23 @@ public class KVStateMachine extends RocksDBStateMachine {
 
     @SuppressWarnings("unchecked")
     @Override
-    public <R extends Serializable> R apply(Command command) {
-        try {
-            switch (command.data()) {
-                case Get getRequest -> {
-                    byte[] bytes = db.get(serializer.serializeJavaObject(getRequest.key));
-                    return bytes == null ? null : (R) serializer.deserialize(bytes);
-                }
-                case Set setRequest -> {
-                    db.put(serializer.serializeJavaObject(setRequest.key), serializer.serialize(setRequest.value));
-                    return null;
-                }
-                case Delete deleteRequest -> {
-                    db.delete(serializer.serializeJavaObject(deleteRequest.key));
-                    return null;
-                }
-                case null, default -> {
-                    return null;
-                }
+    public <R extends Serializable> R apply(Command command) throws RocksDBException {
+        switch (command.data()) {
+            case Get get -> {
+                byte[] bytes = db.get(serializer.serializeJavaObject(get.key));
+                return bytes == null ? null : (R) serializer.deserialize(bytes);
             }
-        } catch (Exception e) {
-            LOG.error("设置到状态机错误", e);
-            return null;
+            case Set set -> {
+                db.put(serializer.serializeJavaObject(set.key), serializer.serialize(set.value));
+                return null;
+            }
+            case Delete deleteRequest -> {
+                db.delete(serializer.serializeJavaObject(deleteRequest.key));
+                return null;
+            }
+            case null, default -> {
+                return null;
+            }
         }
     }
 

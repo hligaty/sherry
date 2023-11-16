@@ -1,10 +1,12 @@
 package io.github.hligaty.raft.rpc;
 
+import com.alipay.remoting.AsyncContext;
 import com.alipay.remoting.BizContext;
 import com.alipay.remoting.Url;
 import com.alipay.remoting.exception.RemotingException;
 import com.alipay.remoting.rpc.RpcClient;
 import com.alipay.remoting.rpc.RpcServer;
+import com.alipay.remoting.rpc.protocol.AsyncUserProcessor;
 import com.alipay.remoting.rpc.protocol.RpcProtocol;
 import com.alipay.remoting.rpc.protocol.SyncUserProcessor;
 import com.google.common.base.CaseFormat;
@@ -35,7 +37,7 @@ public class SofaBoltService implements RpcService {
         this.raftServerService = raftServerService;
         this.rpcServer = new RpcServer(configuration.getServerId().port());
         rpcServer.registerUserProcessor(
-                new SingleThreadExecutorSyncUserProcessor<>(RequestVoteRequest.class.getName())
+                new SuperAsyncUserProcessor<>(RequestVoteRequest.class.getName())
         );
         rpcServer.registerUserProcessor(
                 new SingleThreadExecutorSyncUserProcessor<>(AppendEntriesRequest.class.getName())
@@ -102,6 +104,36 @@ public class SofaBoltService implements RpcService {
         @Override
         public Object handleRequest(BizContext bizCtx, Object request) {
             return SofaBoltService.this.handleRequest(request);
+        }
+
+        @Override
+        public String interest() {
+            return interest;
+        }
+
+        @Override
+        public Executor getExecutor() {
+            return executor;
+        }
+    }
+
+    private class SuperAsyncUserProcessor<T> extends AsyncUserProcessor<T> {
+
+        final String interest;
+
+        final Executor executor;
+
+        public SuperAsyncUserProcessor(String interest) {
+            this.interest = interest;
+            String simpleInterest = CaseFormat.LOWER_CAMEL.to(CaseFormat.LOWER_HYPHEN, interest.substring(interest.lastIndexOf('.') + 1));
+            String threadNamePrefix = simpleInterest + "-process-thread";
+            this.executor = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name(threadNamePrefix).factory());
+        }
+
+        @Override
+        public void handleRequest(BizContext bizCtx, AsyncContext asyncCtx, T request) {
+            Object responseObject = SofaBoltService.this.handleRequest(request);
+            asyncCtx.sendResponse(responseObject);
         }
 
         @Override

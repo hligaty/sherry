@@ -55,7 +55,7 @@ public class Configuration {
         return this;
     }
 
-    public long quorum() {
+    public int quorum() {
         return peers.size() / 2 + 1;
     }
     

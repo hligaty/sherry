@@ -35,10 +35,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public class DefaultNode implements Node, RaftServerService {
 
@@ -119,7 +121,7 @@ public class DefaultNode implements Node, RaftServerService {
 
     public DefaultNode(StateMachine stateMachine) {
         this.lock = new ReentrantLock();
-        this.virtualThreadPerTaskExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        this.virtualThreadPerTaskExecutor = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("loop").factory());
         this.stateMachine = stateMachine;
     }
 
@@ -154,7 +156,7 @@ public class DefaultNode implements Node, RaftServerService {
 
             @Override
             protected void onTrigger() {
-                handleElectionTimeout(true);
+                handleElectionTimeout();
             }
         };
         heartbeatTimer = new RepeatedTimer("heartbeatTimer") {
@@ -239,9 +241,14 @@ public class DefaultNode implements Node, RaftServerService {
         }
     }
 
-
     private <R extends Serializable> R doApply(LogEntry logEntry) {
-        R result = stateMachine.apply(logEntry.command());
+        R result;
+        try {
+            result = stateMachine.apply(logEntry.command());
+        } catch (Exception e) {
+            LOG.info("不允许的错误!!! 状态机执行日志[{}]的命令[{}]错误!!!", logEntry.logId(), logEntry.command());
+            throw new ApplyException(ErrorType.STATE_MACHINE_FAIL);
+        }
         if (logEntry.command().readOnly()) {
             return result;
         }
@@ -277,11 +284,11 @@ public class DefaultNode implements Node, RaftServerService {
             boolean granted = false;
             do {
                 if (request.term() < currTerm) { // 比自己的任期小, 拒绝
-                    LOG.info("收到投票请求, 拒绝. 但任期[{}]比当前节点任期[{}]小", request.term(), currTerm);
+                    LOG.info("收到投票请求, 拒绝[{}]. 但任期[{}]比当前节点任期[{}]小", request.serverId(), request.term(), currTerm);
                     break;
                 }
                 if (request.preVote() && isCurrentLeaderValid()) { // 预投票阶段领导者有效就拒绝. 正式投票时不判断, 因为预投票通过表示大部分节点都同意了
-                    LOG.info("收到预投票请求, 拒绝. 但领导者有效");
+                    LOG.info("收到预投票请求, 拒绝[{}]. 但领导者有效", request.serverId());
                     break;
                 }
                 if (!request.preVote() && request.term() > currTerm) {
@@ -289,7 +296,7 @@ public class DefaultNode implements Node, RaftServerService {
                     stepDown(request.term());
                 }
                 if (!request.preVote() && !votedId.isEmpty()) { // 正式投票时判断是否已经投过了. 预投票只是为了判断是否可以发起正式投票, 不用记录投了谁
-                    LOG.info("收到正式投票请求, 拒绝. 任期[{}]的正式投票已经投给了[{}]", currTerm, votedId);
+                    LOG.info("收到正式投票请求, 拒绝[{}]. 任期[{}]的正式投票已经投给了[{}]", request.serverId(), currTerm, votedId);
                     assert state == State.FOLLOWER;
                     break;
                 }
@@ -299,11 +306,12 @@ public class DefaultNode implements Node, RaftServerService {
                  */
                 LogId localLastLogId = logRepository.getLastLogId();
                 if (new LogId(request.lastLogTerm(), request.lastLogIndex()).compareTo(localLastLogId) < 0) {
-                    LOG.info("收到投票请求, 拒绝. 请求的日志[{}]比本地日志[{}]少", new LogId(request.lastLogTerm(), request.lastLogIndex()), localLastLogId);
+                    LOG.info("收到{}请求, 拒绝[{}]. 请求的日志[{}]比本地日志[{}]少", request.preVote() ? "预投票" : "正式投票",
+                            request.serverId(), new LogId(request.lastLogTerm(), request.lastLogIndex()), localLastLogId);
                     break;
                 }
-                LOG.info("收到投票请求, 同意. 当前和对方任期[{}] [{}], 当前和对方最后日志索引[{}] [{}]",
-                        currTerm, request.term(), localLastLogId, new LogId(request.lastLogTerm(), request.lastLogIndex()));
+                LOG.info("收到{}请求, 同意[{}]. 当前和对方任期[{}] [{}], 当前和对方最后日志索引[{}] [{}]", request.preVote() ? "预投票" : "正式投票",
+                        request.serverId(), currTerm, request.term(), localLastLogId, new LogId(request.lastLogTerm(), request.lastLogIndex()));
                 granted = true;
                 if (!request.preVote()) { // 正式投票阶段投票后更改状态为跟随者
                     stepDown(request.term());
@@ -375,7 +383,8 @@ public class DefaultNode implements Node, RaftServerService {
         }
     }
 
-    private void handleElectionTimeout(boolean preVote) {
+    private void handleElectionTimeout() {
+        boolean doUnlock = true;
         lock.lock();
         try {
             if (
@@ -384,72 +393,127 @@ public class DefaultNode implements Node, RaftServerService {
             ) {
                 return;
             }
-            long term;
-            LogId lastLogId = logRepository.getLastLogId();
-            if (preVote) { // 正式投票时更改状态和当前任期的投票
-                LOG.info("发起预投票, 预选任期:[{}], 最后的日志索引[{}]", term = currTerm + 1, lastLogId); // 预投票不改变任期, 防止对称分区任期不断增加
-            } else {
-                LOG.info("发起正式投票, 竞选任期:[{}], 最后的日志索引[{}]", term = ++currTerm, lastLogId); // 正式投票改变任期
-                state = State.CANDIDATE;
-                votedId = configuration.getServerId();
-                leaderId = PeerId.emptyId();
+            leaderId = PeerId.emptyId();
+            doUnlock = false;
+            preVote();
+        } finally {
+            if (doUnlock) {
+                lock.unlock();
             }
-            LongAdder voteCount = new LongAdder(); // 赞成票计数
-            voteCount.increment();
-            RequestVoteRequest request = new RequestVoteRequest(
+        }
+    }
+
+    private void preVote() {
+        RequestVoteRequest request;
+        try {
+            LogId lastLogId = logRepository.getLastLogId();
+            LOG.info("发起预投票, 预选任期:[{}], 最后的日志索引[{}]", currTerm + 1, lastLogId);
+            request = new RequestVoteRequest(
                     configuration.getServerId(),
-                    term,
+                    currTerm + 1, // 预投票不改变任期, 防止对称分区任期不断增加
                     lastLogId.index(),
                     lastLogId.term(),
-                    preVote
+                    true
             );
-            /*
-            在发生网络分区时 RPC 超时会占用锁很长时间, 而此时可能收到来自竞选成功的领导者的消息, 此时可以直接转变为跟随者,
-            这可以通过细化锁来优化, 但需要加锁的很多 try finally 代码块和 ABA 判断, 这是一个不太影响 Raft 算法, 但实际中需要考虑的问题
-             */
-            sendRequestAllOf(
-                    peer -> {
-                        RpcRequest rpcRequest = new RpcRequest(peer.id(), request, configuration.getElectionTimeoutMs());
-                        // 发起投票请求
-                        RequestVoteResponse response;
-                        try {
-                            response = (RequestVoteResponse) rpcService.sendRequest(rpcRequest);
-                        } catch (Exception e) {
-                            LOG.info("节点:[{}]投票结果, 拒绝. 可能存在网络分区. 当前节点任期[{}]", peer.id(), currTerm);
-                            if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
-                                LOG.error("出错原因如下", e);
-                            }
-                            return;
-                        }
-                        if (response.term() > term) {
-                            LOG.info("节点:[{}]投票结果, 拒绝. 任期[{}]更高. 当前节点任期:[{}]", peer.id(), response.term(), currTerm);
-                            stepDown(response.term());
-                        } else if (response.granted()) {
-                            LOG.info("节点:[{}]投票结果, 赞同. 当前节点任期:[{}]", peer.id(), currTerm);
-                            voteCount.increment();
-                        } else {
-                            LOG.info("节点:[{}]投票结果, 拒绝. 对方任期[{}]不大, 但本地日志索引[{}]少. 当前节点任期:[{}], ", peer.id(), response.term(), request.lastLogIndex(), currTerm);
-                        }
-                    }
+        } finally {
+            lock.unlock();
+        }
+        Ballot ballot = sendRequestVoteRequest(request);
+        handleRequestVoteResponse(request, ballot);
+    }
+
+    private void electSelf() {
+        RequestVoteRequest request;
+        try {
+            LogId lastLogId = logRepository.getLastLogId();
+            state = State.CANDIDATE;
+            currTerm++;
+            votedId = configuration.getServerId();
+            leaderId = PeerId.emptyId();
+            LOG.info("发起正式投票, 竞选任期:[{}], 最后的日志索引[{}]", currTerm, lastLogId);
+            request = new RequestVoteRequest(
+                    configuration.getServerId(),
+                    currTerm,
+                    lastLogId.index(),
+                    lastLogId.term(),
+                    false
             );
-            if (request.preVote()) { // 预投票结果判断
-                if (voteCount.sum() >= configuration.quorum()) {
-                    LOG.info("预投票票数[{}]超过一半节点, 开始正式投票", voteCount.sum());
-                    handleElectionTimeout(false);
-                } else {
-                    LOG.info("预投票票数[{}]少于一半节点, 投票失败", voteCount.sum());
+        } finally {
+            lock.unlock();
+        }
+        Ballot ballot = sendRequestVoteRequest(request);
+        handleRequestVoteResponse(request, ballot);
+    }
+
+    private Ballot sendRequestVoteRequest(RequestVoteRequest request) {
+        Ballot ballot = new Ballot(configuration.quorum(), request.preVote());
+        ballot.grant();
+        String processName = request.preVote() ? "预投票" : "正式投票";
+        configuration.getPeers().forEach(peer -> Thread.startVirtualThread(() -> {
+            RpcRequest rpcRequest = new RpcRequest(peer.id(), request, configuration.getElectionTimeoutMs());
+            RequestVoteResponse response;
+            try {
+                response = (RequestVoteResponse) rpcService.sendRequest(rpcRequest);
+            } catch (Exception e) {
+                LOG.info("节点[{}]{}投票结果: 拒绝. 可能存在网络分区. 当前节点任期[{}]", peer.id(), processName, currTerm);
+                if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
+                    LOG.error("出错原因如下", e);
                 }
-            } else { // 正式投票结果判断
-                if (voteCount.sum() >= configuration.quorum()) {
-                    LOG.info("正式投票票数[{}]超过一半节点, 上升为领导者", voteCount.sum());
+                return;
+            }
+            lock.lock();
+            try {
+                long oldTerm = request.preVote() ? request.term() - 1 : request.term();
+                if (oldTerm != currTerm) {
+                    LOG.info("节点[{}]{}投票结果: 拒绝. 任期由[{}]变更为[{}]", peer.id(), processName, oldTerm, currTerm);
+                } else if (response.term() > request.term()) {
+                    LOG.info("节点[{}]{}投票结果: 拒绝. 任期[{}]更高. 当前节点任期:[{}]", peer.id(), processName, response.term(), request.term());
+                    stepDown(response.term());
+                } else if (response.granted()) {
+                    LOG.info("节点[{}]{}投票结果: 赞同. 当前节点任期:[{}]", peer.id(), processName, request.term());
+                    ballot.grant();
+                } else {
+                    LOG.info("节点[{}]{}投票结果: 拒绝. 对方任期[{}]不大, 但本地日志索引[{}]少. 当前节点任期:[{}], ",
+                            peer.id(), processName, response.term(), request.lastLogIndex(), request.term());
+                }
+            } finally {
+                lock.unlock();
+            }
+        }));
+        return ballot;
+    }
+
+    private void handleRequestVoteResponse(RequestVoteRequest request, Ballot ballot) {
+        boolean isGranted = ballot.await(configuration.getElectionTimeoutMs(), TimeUnit.MILLISECONDS);
+        boolean doUnlock = true;
+        lock.lock();
+        try {
+            long oldTerm = request.preVote() ? request.term() - 1 : request.term();
+            if (oldTerm != currTerm) {
+                LOG.info("取消{}投票. 任期由[{}]变更为[{}]", request.preVote() ? "预投票" : "正式投票", oldTerm, currTerm);
+                return;
+            }
+            if (request.preVote()) {
+                if (isGranted) {
+                    LOG.info("预投票票数占多数, 开始正式投票");
+                    doUnlock = false;
+                    electSelf();
+                } else {
+                    LOG.info("预投票票数占少数, 投票失败");
+                }
+            } else {
+                if (isGranted) {
+                    LOG.info("正式投票票数超过一半节点, 上升为领导者");
                     becomeLeader();
                 } else {
-                    LOG.info("正式投票票数[{}]少于一半节点, 下降为跟随者", voteCount.sum());
+                    LOG.info("正式投票票数少于一半节点, 下降为跟随者");
                     stepDown(currTerm);
                 }
             }
         } finally {
-            lock.unlock();
+            if (doUnlock) {
+                lock.unlock();
+            }
         }
     }
 
@@ -622,5 +686,27 @@ public class DefaultNode implements Node, RaftServerService {
                                 .map(peer -> CompletableFuture.runAsync(() -> requestHandler.accept(peer), virtualThreadPerTaskExecutor))
                                 .toArray(CompletableFuture[]::new))
                 .join();
+    }
+
+    private <T> T supplyWithLock(Supplier<T> supplier) {
+        lock.lock();
+        try {
+            return supplier.get();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void checkTermAndRun(Runnable runnable, long expectedTerm) {
+        lock.lock();
+        try {
+            if (expectedTerm != currTerm) {
+                LOG.info("预期的任期[{}]与实际的任期[{}]不符, 不必继续执行", expectedTerm, currTerm);
+                return;
+            }
+            runnable.run();
+        } finally {
+            lock.unlock();
+        }
     }
 }
