@@ -22,6 +22,7 @@ import io.github.hligaty.raft.storage.StoreException;
 import io.github.hligaty.raft.storage.impl.LocalRaftMetaRepository;
 import io.github.hligaty.raft.storage.impl.RocksDBLogRepository;
 import io.github.hligaty.raft.util.RepeatedTimer;
+import io.github.hligaty.raft.util.Tracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,20 +32,15 @@ import java.nio.file.Files;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Consumer;
-import java.util.function.Supplier;
 
 public class DefaultNode implements Node, RaftServerService {
 
     private static final Logger LOG = LoggerFactory.getLogger(DefaultNode.class);
+
+    private static final ScopedValue<Long> OLD_TERM_VALUE = ScopedValue.newInstance();
 
     /**
      * 配置信息
@@ -56,8 +52,6 @@ public class DefaultNode implements Node, RaftServerService {
      */
     private RpcService rpcService;
 
-    private final ExecutorService virtualThreadPerTaskExecutor;
-
     /**
      * 日志存储
      */
@@ -68,6 +62,9 @@ public class DefaultNode implements Node, RaftServerService {
      */
     private LocalRaftMetaRepository raftMetaRepository;
 
+    /**
+     * 状态机
+     */
     private final StateMachine stateMachine;
 
     // ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
@@ -121,7 +118,6 @@ public class DefaultNode implements Node, RaftServerService {
 
     public DefaultNode(StateMachine stateMachine) {
         this.lock = new ReentrantLock();
-        this.virtualThreadPerTaskExecutor = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("loop").factory());
         this.stateMachine = stateMachine;
     }
 
@@ -209,7 +205,7 @@ public class DefaultNode implements Node, RaftServerService {
                     ? logRepository.getSuffix(lastCommittedIndex, logEntry.index())
                     : Collections.singletonList(logEntry);
             return logEntries.stream()
-                    .reduce(null, (__, entry) -> doApply(entry), (__, result) -> result);
+                    .reduce(null, (_, entry) -> doApply(entry), (_, result) -> result);
         } finally {
             lock.unlock();
         }
@@ -220,7 +216,7 @@ public class DefaultNode implements Node, RaftServerService {
         实现跟随者的 ReadIndex Read, 也就是领导者已提交的写需要跟随者可见(由 Java 多线程 volatile 转变为分布式 server 的 "volatile"),
         只需要让跟随者的状态机与领导者同步就可以了, 即通知领导者把它的日志全提交并通知跟随者也提交
          */
-        ReadIndexRequest request = ReadIndexRequest.getInstance();
+        ReadIndexRequest request = new ReadIndexRequest(Tracker.getId());
         RpcRequest rpcRequest = new RpcRequest(leaderId, request, configuration.getRpcRequestTimeoutMs());
         if (
                 rpcRequest.remoteId().isEmpty()
@@ -412,6 +408,7 @@ public class DefaultNode implements Node, RaftServerService {
             LogId lastLogId = logRepository.getLastLogId();
             LOG.info("发起预投票, 预选任期:[{}], 最后的日志索引[{}]", currTerm + 1, lastLogId);
             request = new RequestVoteRequest(
+                    Tracker.getId(),
                     configuration.getServerId(),
                     currTerm + 1, // 预投票不改变任期, 防止对称分区任期不断增加
                     lastLogId.index(),
@@ -421,8 +418,10 @@ public class DefaultNode implements Node, RaftServerService {
         } finally {
             lock.unlock();
         }
-        Ballot ballot = sendRequestVoteRequest(request);
-        handleRequestVoteResponse(request, ballot);
+        ScopedValue.where(OLD_TERM_VALUE, request.term() - 1).run(() -> {
+            Ballot ballot = sendRequestVoteRequest(request);
+            handleRequestVoteResponse(request, ballot);
+        });
     }
 
     private void electSelf() {
@@ -435,6 +434,7 @@ public class DefaultNode implements Node, RaftServerService {
             leaderId = PeerId.emptyId();
             LOG.info("发起正式投票, 竞选任期:[{}], 最后的日志索引[{}]", currTerm, lastLogId);
             request = new RequestVoteRequest(
+                    Tracker.getId(),
                     configuration.getServerId(),
                     currTerm,
                     lastLogId.index(),
@@ -444,14 +444,17 @@ public class DefaultNode implements Node, RaftServerService {
         } finally {
             lock.unlock();
         }
-        Ballot ballot = sendRequestVoteRequest(request);
-        handleRequestVoteResponse(request, ballot);
+        ScopedValue.where(OLD_TERM_VALUE, request.term()).run(() -> {
+            Ballot ballot = sendRequestVoteRequest(request);
+            handleRequestVoteResponse(request, ballot);
+        });
     }
 
     private Ballot sendRequestVoteRequest(RequestVoteRequest request) {
-        Ballot ballot = new Ballot(configuration.quorum(), request.preVote());
+        Ballot ballot = new Ballot(configuration.quorum(), request.preVote() ? "预投票" : "正式投票");
         ballot.grant();
         String processName = request.preVote() ? "预投票" : "正式投票";
+        long oldTerm = OLD_TERM_VALUE.get();
         configuration.getPeers().forEach(peer -> Thread.startVirtualThread(() -> {
             RpcRequest rpcRequest = new RpcRequest(peer.id(), request, configuration.getElectionTimeoutMs());
             RequestVoteResponse response;
@@ -466,7 +469,6 @@ public class DefaultNode implements Node, RaftServerService {
             }
             lock.lock();
             try {
-                long oldTerm = request.preVote() ? request.term() - 1 : request.term();
                 if (oldTerm != currTerm) {
                     LOG.info("节点[{}]{}投票结果: 拒绝. 任期由[{}]变更为[{}]", peer.id(), processName, oldTerm, currTerm);
                 } else if (response.term() > request.term()) {
@@ -487,11 +489,11 @@ public class DefaultNode implements Node, RaftServerService {
     }
 
     private void handleRequestVoteResponse(RequestVoteRequest request, Ballot ballot) {
-        boolean isGranted = ballot.await(configuration.getElectionTimeoutMs(), TimeUnit.MILLISECONDS);
+        boolean isGranted = ballot.isGranted(configuration.getElectionTimeoutMs());
         boolean doUnlock = true;
         lock.lock();
         try {
-            long oldTerm = request.preVote() ? request.term() - 1 : request.term();
+            long oldTerm = OLD_TERM_VALUE.get();
             if (oldTerm != currTerm) {
                 LOG.info("取消{}投票. 任期由[{}]变更为[{}]", request.preVote() ? "预投票" : "正式投票", oldTerm, currTerm);
                 return;
@@ -546,6 +548,7 @@ public class DefaultNode implements Node, RaftServerService {
         long prevLogIndex = peer.nextIndex() - 1;
         long prevLogTerm = logRepository.getEntry(prevLogIndex).term();
         AppendEntriesRequest request = new AppendEntriesRequest(
+                Tracker.getId(),
                 configuration.getServerId(), currTerm,
                 Collections.emptyList(), prevLogTerm, prevLogIndex,
                 lastCommittedIndex
@@ -580,22 +583,22 @@ public class DefaultNode implements Node, RaftServerService {
         还有 ReadIndex Read 也只发心跳就行, 保证跟随者的状态机执行到领导者已提交的日志就行,
         但这只是一个小 Demo, 所以偷个懒懒懒懒懒懒懒懒懒懒
          */
-        LongAdder voteCount = new LongAdder(); // 赞同票计数
-        voteCount.increment();
-        sendRequestAllOf(
-                peer -> {
-                    try {
-                        sendEntries(peer, isHeartbeat);
-                        voteCount.add(state == State.LEADER ? 1 : 0);
-                    } catch (Exception e) {
-                        LOG.info("节点[{}]追加日志时发生错误, 可能出现网络分区, 当前节点任期[{}]", peer.id(), currTerm);
-                        if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
-                            LOG.error("出错原因如下", e);
-                        }
-                    }
+        Ballot ballot = new Ballot(configuration.quorum(), "追加日志");
+        ballot.grant();
+        configuration.getPeers().forEach(peer -> Thread.startVirtualThread(() -> {
+            try {
+                sendEntries(peer, isHeartbeat);
+                if (state == State.LEADER) {
+                    ballot.grant();
                 }
-        );
-        if (voteCount.sum() < configuration.quorum()) {
+            } catch (Exception e) {
+                LOG.info("节点[{}]追加日志时发生错误, 可能出现网络分区, 当前节点任期[{}]", peer.id(), currTerm);
+                if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
+                    LOG.error("出错原因如下", e);
+                }
+            }
+        }));
+        if (!ballot.isGranted(configuration.getRpcRequestTimeoutMs())) {
             LOG.info("追加日志不被大多数节点认可, 可能是网络分区, 下降为跟随者");
             stepDown(currTerm);
             return false;
@@ -613,6 +616,7 @@ public class DefaultNode implements Node, RaftServerService {
         LOG.info("发送追加日志请求, 节点[{}]日志从索引[{}]开始复制, 已应用到状态机的日志索引[{}]", peer.id(), prevLogIndex + 1, lastCommittedIndex);
         List<LogEntry> logEntries = isHeartbeat ? Collections.emptyList() : logRepository.getSuffix(prevLogIndex + 1);
         AppendEntriesRequest request = new AppendEntriesRequest(
+                Tracker.getId(),
                 configuration.getServerId(), currTerm,
                 logEntries, prevLogTerm, prevLogIndex,
                 lastCommittedIndex
@@ -677,37 +681,6 @@ public class DefaultNode implements Node, RaftServerService {
             } else {
                 LOG.info("心跳失败, 判定当前节点任期[{}]从领导者下降为跟随者", currTerm);
             }
-        } finally {
-            lock.unlock();
-        }
-    }
-
-    private void sendRequestAllOf(Consumer<Peer> requestHandler) {
-        CompletableFuture
-                .allOf(
-                        configuration.getPeers().stream()
-                                .map(peer -> CompletableFuture.runAsync(() -> requestHandler.accept(peer), virtualThreadPerTaskExecutor))
-                                .toArray(CompletableFuture[]::new))
-                .join();
-    }
-
-    private <T> T supplyWithLock(Supplier<T> supplier) {
-        lock.lock();
-        try {
-            return supplier.get();
-        } finally {
-            lock.unlock();
-        }
-    }
-
-    private void checkTermAndRun(Runnable runnable, long expectedTerm) {
-        lock.lock();
-        try {
-            if (expectedTerm != currTerm) {
-                LOG.info("预期的任期[{}]与实际的任期[{}]不符, 不必继续执行", expectedTerm, currTerm);
-                return;
-            }
-            runnable.run();
         } finally {
             lock.unlock();
         }

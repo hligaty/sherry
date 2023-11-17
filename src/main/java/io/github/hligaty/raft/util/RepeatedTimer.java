@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -29,11 +30,8 @@ public abstract class RepeatedTimer {
 
 
     public RepeatedTimer(String name) {
-        this.scheduledExecutorService = Executors.newScheduledThreadPool(1, r -> {
-            Thread thread = new Thread(r, CaseFormat.LOWER_CAMEL.to(CaseFormat.LOWER_HYPHEN, name) + "-thread");
-            thread.setDaemon(true);
-            return thread;
-        });
+        ThreadFactory threadFactory = Thread.ofVirtual().name(CaseFormat.LOWER_CAMEL.to(CaseFormat.LOWER_HYPHEN, name) + "-thread").factory();
+        this.scheduledExecutorService = Executors.newScheduledThreadPool(1, threadFactory);
     }
 
     protected abstract int adjustTimeout();
@@ -73,11 +71,13 @@ public abstract class RepeatedTimer {
     }
 
     private void run() {
+        Tracker.start();
         try {
             onTrigger();
         } catch (Throwable throwable) {
             LOG.error("Uncaught exception in thread {}", Thread.currentThread(), throwable);
         } finally {
+            Tracker.stop();
             lock.lock();
             try {
                 if (!stopped) {

@@ -17,6 +17,8 @@ import io.github.hligaty.raft.rpc.packet.Command;
 import io.github.hligaty.raft.rpc.packet.PeerId;
 import io.github.hligaty.raft.rpc.packet.ReadIndexRequest;
 import io.github.hligaty.raft.rpc.packet.RequestVoteRequest;
+import io.github.hligaty.raft.rpc.packet.Traceable;
+import io.github.hligaty.raft.util.Tracker;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -55,18 +57,27 @@ public class SofaBoltService implements RpcService {
 
     @Override
     public Object handleRequest(Object request) {
-        return switch (request) {
-            case AppendEntriesRequest appendEntriesRequest:
-                yield raftServerService.handleAppendEntriesRequest(appendEntriesRequest);
-            case ReadIndexRequest readIndexRequest:
-                yield raftServerService.handleReadIndexRequest(readIndexRequest);
-            case RequestVoteRequest requestVoteRequest:
-                yield raftServerService.handleRequestVoteRequest(requestVoteRequest);
-            case Command command:
-                yield raftServerService.apply(command);
-            default:
-                throw new IllegalStateException("Unexpected value: " + request.getClass());
-        };
+        if (request instanceof Traceable traceable) {
+            Tracker.start(traceable.traceId());
+        } else {
+            Tracker.start();
+        }
+        try {
+            return switch (request) {
+                case AppendEntriesRequest appendEntriesRequest:
+                    yield raftServerService.handleAppendEntriesRequest(appendEntriesRequest);
+                case ReadIndexRequest readIndexRequest:
+                    yield raftServerService.handleReadIndexRequest(readIndexRequest);
+                case RequestVoteRequest requestVoteRequest:
+                    yield raftServerService.handleRequestVoteRequest(requestVoteRequest);
+                case Command command:
+                    yield raftServerService.apply(command);
+                default:
+                    throw new IllegalStateException("Unexpected value: " + request.getClass());
+            };
+        } finally {
+            Tracker.stop();
+        }
     }
 
     @Override

@@ -53,7 +53,7 @@ public class RocksDBLogRepository implements LogRepository {
     public RocksDBLogRepository(Path dir) {
         this.dbOptions = new DBOptions().setCreateIfMissing(true);
         this.writeOptions = new WriteOptions();
-        this.writeOptions.setSync(true);
+        this.writeOptions.setSync(true); // 同步刷盘非常耗费性能, 生产的实现一定要用批量刷盘
         this.totalOrderReadOptions = new ReadOptions();
         this.totalOrderReadOptions.setTotalOrderSeek(true);
         try {

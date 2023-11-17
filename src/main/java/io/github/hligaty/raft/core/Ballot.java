@@ -12,22 +12,22 @@ public class Ballot {
     
     private final CountDownLatch latch;
     
-    private final boolean preVote;
+    private final String name;
     
-    public Ballot(int count, boolean preVote) {
+    public Ballot(int count, String name) {
         this.latch = new CountDownLatch(count);
-        this.preVote = preVote;
+        this.name = name;
     }
     
     public void grant() {
         latch.countDown();
     }
     
-    public boolean await(long timeout, TimeUnit unit) {
+    public boolean isGranted(long timeoutMs) {
         try {
-            return latch.await(timeout, unit);
+            return latch.await(timeoutMs, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
-            LOG.error("等待{}完成时出现中断异常", preVote ? "预投票" : "正式投票", e);
+            LOG.error("等待{}完成时出现中断异常", name, e);
             return false;
         }
     }
