@@ -339,7 +339,10 @@ public class DefaultNode implements Node, RaftServerService {
                 }
                 lastLeaderTimestamp = System.currentTimeMillis();
                 if (request.term() > currTerm) {
-                    LOG.info("收到新领导任期[{}]的追加日志请求, 更改当前状态[{}]和任期[{}]", request.term(), state, currTerm);
+                    LOG.info("收到更高任期[{}]的领导者追加日志请求, 更改当前状态[{}]和任期[{}]", request.term(), state, currTerm);
+                    stepDown(request.term());
+                } else if (state == State.CANDIDATE) {
+                    LOG.info("收到相同任期[{}]的领导者追加日志请求, 当前候选者竞选失败", request.term());
                     stepDown(request.term());
                 }
                 leaderId = leaderId.isEmpty() ? request.serverId() : leaderId;
