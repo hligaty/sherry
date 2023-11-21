@@ -22,7 +22,7 @@
 
 ## 启动服务端
 
-1. 配置 3 个运行程序, 配置如下 VM 参数，-Dport 分别设置为 4869、4870 和 4871：
+1. 配置 5 个运行程序, 配置如下 VM 参数，-Dport 分别设置为 4869、4870、4871、4872 和 4873：
 
 ```
 -ea
@@ -40,7 +40,7 @@
 --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED
 ```
 
-2. 运行配置的 3 个 `io.github.hligaty.raft.RaftLocalClusterTest.RaftServer#main` 程序
+2. 运行配置的 5 个 `io.github.hligaty.raft.RaftLocalClusterTest.RaftServer#main` 程序
 
 ## 启动客户端
 
@@ -62,18 +62,18 @@
 Sofa-Middleware-Log SLF4J Warn : No log util is usable, Default app logger will be used.
 set hello world
 Succeed to execute remote invoke. port[4871], leaderPort[4871], time[142]
-Please enter the command:
+Please enter the clientRequest:
 get hello
 Succeed to execute remote invoke. port[4869], leaderPort[4869], time[23]
 world
-Please enter the command:
+Please enter the clientRequest:
 delete hello
 Succeed to execute remote invoke. port[4871], leaderPort[4871], time[112]
-Please enter the command:
+Please enter the clientRequest:
 get hello
 Succeed to execute remote invoke. port[4869], leaderPort[4869], time[6]
 null
-Please enter the command:
+Please enter the clientRequest:
 ```
 
 ### 计数器
@@ -88,23 +88,23 @@ Please enter the command:
 ```
 Sofa-Middleware-Log SLF4J Warn : No log util is usable, Default app logger will be used.
 raft set 4870
-Please enter the command:
+Please enter the clientRequest:
 Succeed to execute remote invoke. port[4869], leaderPort[4869], time[226]
 increment
 1
-Please enter the command:
+Please enter the clientRequest:
 increment
 Succeed to execute remote invoke. port[4869], leaderPort[4869], time[87]
 2
-Please enter the command:
+Please enter the clientRequest:
 get
 Succeed to execute remote invoke. port[4869], leaderPort[4869], time[2]
 2
-Please enter the command:
+Please enter the clientRequest:
 get
 Succeed to execute remote invoke. port[4870], leaderPort[4870], time[4]
 2
-Please enter the command:
+Please enter the clientRequest:
 ```
 
 ### 其他
@@ -125,7 +125,7 @@ com.alipay.remoting.rpc.exception.InvokeServerException: Server exception! Pleas
 	at io.github.hligaty.raft.RaftLocalClusterTest.sendCommand(RaftLocalClusterTest.java:167)
 	at io.github.hligaty.raft.RaftLocalClusterTest.executeKVCommand(RaftLocalClusterTest.java:115)
 	at io.github.hligaty.raft.RaftLocalClusterTest$RaftCli.main(RaftLocalClusterTest.java:67)
-Caused by: com.alipay.remoting.rpc.exception.RpcServerException: [Server]OriginErrorMsg: io.github.hligaty.raft.core.ApplyException: REPLICATION_FAIL. AdditionalErrorMsg: SYNC process rpc request failed in RpcRequestProcessor, id=1
+Caused by: com.alipay.remoting.rpc.exception.RpcServerException: [Server]OriginErrorMsg: io.github.hligaty.raft.core.ServerException: REPLICATION_FAIL. AdditionalErrorMsg: SYNC process rpc request failed in RpcRequestProcessor, id=1
 	at io.github.hligaty.raft.core.DefaultNode.apply(DefaultNode.java:204)
 	at io.github.hligaty.raft.rpc.SofaBoltService.handleRequest(SofaBoltService.java:64)
 	at io.github.hligaty.raft.rpc.SofaBoltService$SingleThreadExecutorSyncUserProcessor.handleRequest(SofaBoltService.java:104)
@@ -135,10 +135,10 @@ Caused by: com.alipay.remoting.rpc.exception.RpcServerException: [Server]OriginE
 	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
-Please enter the command:
+Please enter the clientRequest:
 get hello
 Succeed to execute remote invoke. port[4871], leaderPort[4871], time[13]
 world
-Please enter the command:
+Please enter the clientRequest:
 ```
 

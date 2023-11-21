@@ -13,7 +13,7 @@ import com.google.common.base.CaseFormat;
 import io.github.hligaty.raft.config.Configuration;
 import io.github.hligaty.raft.core.RaftServerService;
 import io.github.hligaty.raft.rpc.packet.AppendEntriesRequest;
-import io.github.hligaty.raft.rpc.packet.Command;
+import io.github.hligaty.raft.rpc.packet.ClientRequest;
 import io.github.hligaty.raft.rpc.packet.PeerId;
 import io.github.hligaty.raft.rpc.packet.ReadIndexRequest;
 import io.github.hligaty.raft.rpc.packet.RequestVoteRequest;
@@ -28,7 +28,7 @@ public class SofaBoltService implements RpcService {
     private final Configuration configuration;
 
     private final RaftServerService raftServerService;
-    
+
     private final RpcServer rpcServer;
 
     private final RpcClient rpcClient;
@@ -48,7 +48,7 @@ public class SofaBoltService implements RpcService {
                 new SingleThreadExecutorSyncUserProcessor<>(ReadIndexRequest.class.getName())
         );
         rpcServer.registerUserProcessor(
-                new SingleThreadExecutorSyncUserProcessor<>(Command.class.getName())
+                new SingleThreadExecutorSyncUserProcessor<>(ClientRequest.class.getName())
         );
         rpcServer.startup();
         this.rpcClient = new RpcClient();
@@ -59,8 +59,6 @@ public class SofaBoltService implements RpcService {
     public Object handleRequest(Object request) {
         if (request instanceof Traceable traceable) {
             Tracker.start(traceable.traceId());
-        } else {
-            Tracker.start();
         }
         try {
             return switch (request) {
@@ -70,8 +68,8 @@ public class SofaBoltService implements RpcService {
                     yield raftServerService.handleReadIndexRequest(readIndexRequest);
                 case RequestVoteRequest requestVoteRequest:
                     yield raftServerService.handleRequestVoteRequest(requestVoteRequest);
-                case Command command:
-                    yield raftServerService.apply(command);
+                case ClientRequest clientRequest:
+                    yield raftServerService.handleClientRequest(clientRequest);
                 default:
                     throw new IllegalStateException("Unexpected value: " + request.getClass());
             };
@@ -99,6 +97,12 @@ public class SofaBoltService implements RpcService {
         rpcServer.shutdown();
     }
 
+    private static String generateThreadNameFromInterest(String interest) {
+        // "fooBar" -> "foo-bar-process-thread"
+        String simpleInterest = CaseFormat.LOWER_CAMEL.to(CaseFormat.LOWER_HYPHEN, interest.substring(interest.lastIndexOf('.') + 1));
+        return simpleInterest + "-process-thread";
+    }
+
     private class SingleThreadExecutorSyncUserProcessor<T> extends SyncUserProcessor<T> {
 
         final String interest;
@@ -107,8 +111,7 @@ public class SofaBoltService implements RpcService {
 
         public SingleThreadExecutorSyncUserProcessor(String interest) {
             this.interest = interest;
-            String simpleInterest = CaseFormat.LOWER_CAMEL.to(CaseFormat.LOWER_HYPHEN, interest.substring(interest.lastIndexOf('.') + 1));
-            String threadNamePrefix = simpleInterest + "-process-thread";
+            String threadNamePrefix = generateThreadNameFromInterest(interest);
             this.executor = Executors.newSingleThreadExecutor(Thread.ofPlatform().name(threadNamePrefix).factory());
         }
 
@@ -136,8 +139,7 @@ public class SofaBoltService implements RpcService {
 
         public SuperAsyncUserProcessor(String interest) {
             this.interest = interest;
-            String simpleInterest = CaseFormat.LOWER_CAMEL.to(CaseFormat.LOWER_HYPHEN, interest.substring(interest.lastIndexOf('.') + 1));
-            String threadNamePrefix = simpleInterest + "-process-thread";
+            String threadNamePrefix = generateThreadNameFromInterest(interest);
             this.executor = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name(threadNamePrefix).factory());
         }
 

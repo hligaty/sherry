@@ -1,13 +1,12 @@
 package io.github.hligaty.raft.storage;
 
-import io.github.hligaty.raft.rpc.packet.Command;
-
 import java.io.Closeable;
+import java.io.Serializable;
 import java.util.List;
 
 public interface LogRepository extends Closeable {
     
-    LogEntry appendEntry(long term, Command command);
+    LogEntry appendEntry(long term, Serializable data);
     
     void appendEntries(List<LogEntry> logEntries);
     

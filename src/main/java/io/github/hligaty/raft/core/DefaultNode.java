@@ -9,7 +9,8 @@ import io.github.hligaty.raft.rpc.RpcService;
 import io.github.hligaty.raft.rpc.SofaBoltService;
 import io.github.hligaty.raft.rpc.packet.AppendEntriesRequest;
 import io.github.hligaty.raft.rpc.packet.AppendEntriesResponse;
-import io.github.hligaty.raft.rpc.packet.Command;
+import io.github.hligaty.raft.rpc.packet.ClientRequest;
+import io.github.hligaty.raft.rpc.packet.ClientResponse;
 import io.github.hligaty.raft.rpc.packet.PeerId;
 import io.github.hligaty.raft.rpc.packet.ReadIndexRequest;
 import io.github.hligaty.raft.rpc.packet.ReadIndexResponse;
@@ -32,6 +33,8 @@ import java.nio.file.Files;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -40,7 +43,7 @@ public class DefaultNode implements Node, RaftServerService {
 
     private static final Logger LOG = LoggerFactory.getLogger(DefaultNode.class);
 
-    private static final ScopedValue<Long> OLD_TERM_VALUE = ScopedValue.newInstance();
+    private static final ExecutorService threadPool = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("event-loop-thread").factory());
 
     /**
      * 配置信息
@@ -72,7 +75,7 @@ public class DefaultNode implements Node, RaftServerService {
     /**
      * 全局锁, 控制 Raft 需要的状态等数据的变动. 两条线内的数据需要通过锁变更, 并且需要重启后也能恢复(状态就不需要了, 重启后肯定是跟随者)
      */
-    private final Lock lock;
+    private final Lock lock = new ReentrantLock();
 
     /**
      * 状态
@@ -117,7 +120,6 @@ public class DefaultNode implements Node, RaftServerService {
     private RepeatedTimer heartbeatTimer;
 
     public DefaultNode(StateMachine stateMachine) {
-        this.lock = new ReentrantLock();
         this.stateMachine = stateMachine;
     }
 
@@ -173,79 +175,94 @@ public class DefaultNode implements Node, RaftServerService {
 
     @Override
     public void shutdown() {
-        rpcService.shutdown();
+        lock.lock();
         try {
+            rpcService.shutdown();
             logRepository.close();
+            heartbeatTimer.stop();
+            electionTimer.stop();
         } catch (IOException e) {
             throw new StoreException(e);
+        } finally {
+            lock.unlock();
         }
         LOG.info("节点关闭!!!");
     }
 
     @Override
-    public <R extends Serializable> R apply(Command command) {
+    public ClientResponse handleClientRequest(ClientRequest request) {
         if (state == State.FOLLOWER) {
-            return readFollwer(command);
+            return readFollower(request);
         }
         lock.lock();
         try {
             if (state != State.LEADER) {
-                throw new ApplyException(ErrorType.NOT_LEADER);
+                throw new ServerException(ErrorType.NOT_LEADER);
             }
-            LogEntry logEntry = command.readOnly()
-                    ? new LogEntry(LogId.zero(), command)
-                    : logRepository.appendEntry(currTerm, command);
-            if (!sendEntries(false)) {
-                /*
-                客户端收到这个错误不代表就执行失败了, 之后还可能复制到大多数(可能是当前节点或复制成功的少数节点当选领导者后复制的)节点.
-                 */
-                throw new ApplyException(ErrorType.REPLICATION_FAIL);
-            }
-            List<LogEntry> logEntries = logEntry.index() - lastCommittedIndex > 1
-                    ? logRepository.getSuffix(lastCommittedIndex, logEntry.index())
-                    : Collections.singletonList(logEntry);
-            return logEntries.stream()
-                    .reduce(null, (_, entry) -> doApply(entry), (_, result) -> result);
+            Serializable data = apply(request);
+            return ClientResponse.success(data);
+        } catch (ServerException e) {
+            LOG.info("执行客户端请求失败, 原因为[{}]", e.getErrorType());
+            return ClientResponse.fail(e.getErrorType());
         } finally {
             lock.unlock();
         }
     }
 
-    private <R extends Serializable> R readFollwer(Command command) {
+    private ClientResponse readFollower(ClientRequest clientRequest) {
         /*
         实现跟随者的 ReadIndex Read, 也就是领导者已提交的写需要跟随者可见(由 Java 多线程 volatile 转变为分布式 server 的 "volatile"),
         只需要让跟随者的状态机与领导者同步就可以了, 即通知领导者把它的日志全提交并通知跟随者也提交
          */
+        LOG.info("跟随者开始执行读索引读");
         ReadIndexRequest request = new ReadIndexRequest(Tracker.getId());
         RpcRequest rpcRequest = new RpcRequest(leaderId, request, configuration.getRpcRequestTimeoutMs());
         if (
                 rpcRequest.remoteId().isEmpty()
-                || !command.readOnly()
+                || !clientRequest.readOnly()
         ) {
-            throw new ApplyException(ErrorType.NOT_LEADER);
+            return ClientResponse.fail(ErrorType.NOT_LEADER);
         }
         ReadIndexResponse response = (ReadIndexResponse) rpcService.sendRequest(rpcRequest);
         if (!response.success()) {
-            throw new ApplyException(ErrorType.NOT_LEADER);
+            return ClientResponse.fail(ErrorType.NOT_LEADER);
         }
         lock.lock();
         try {
+            LOG.info("跟随者完成执行读索引读, 执行状态机命令");
             assert lastCommittedIndex >= response.committedIndex();
-            return doApply(new LogEntry(LogId.zero(), command));
+            Serializable data = doApply(new LogEntry(LogId.zero(), clientRequest.data()), true);
+            return ClientResponse.success(data);
         } finally {
             lock.unlock();
         }
     }
 
-    private <R extends Serializable> R doApply(LogEntry logEntry) {
+    public <R extends Serializable> R apply(ClientRequest clientRequest) {
+        LogEntry logEntry = clientRequest.readOnly()
+                ? new LogEntry(LogId.zero(), clientRequest.data())
+                : logRepository.appendEntry(currTerm, clientRequest.data());
+        if (!sendEntries(false)) {
+            // 客户端收到这个错误不代表就执行失败了, 之后还可能复制到大多数(可能是当前节点或复制成功的少数节点当选领导者后复制的)节点.
+            throw new ServerException(ErrorType.REPLICATION_FAIL);
+        }
+        // 所有日志都已经复制到大多数节点了, 提交除了当前日志外的所有未提交日志
+        if (logRepository.getLastLogIndex() != lastCommittedIndex) {
+            long endIndex = clientRequest.readOnly() ? logRepository.getLastLogIndex() : logRepository.getLastLogIndex() - 1;
+            logRepository.getSuffix(lastCommittedIndex + 1, endIndex).forEach(entry -> doApply(entry, false));
+        }
+        return doApply(logEntry, clientRequest.readOnly());
+    }
+
+    private <R extends Serializable> R doApply(LogEntry logEntry, boolean readOnly) {
         R result;
         try {
-            result = stateMachine.apply(logEntry.command());
+            result = stateMachine.apply(logEntry.data());
         } catch (Exception e) {
-            LOG.info("不允许的错误!!! 状态机执行日志[{}]的命令[{}]错误!!!", logEntry.logId(), logEntry.command());
-            throw new ApplyException(ErrorType.STATE_MACHINE_FAIL);
+            LOG.info("不允许的错误!!! 状态机执行日志[{}]的命令[{}]错误!!!", logEntry.logId(), logEntry.data());
+            throw new ServerException(ErrorType.STATE_MACHINE_FAIL);
         }
-        if (logEntry.command().readOnly()) {
+        if (readOnly) {
             return result;
         }
         lastCommittedIndex = logEntry.index();
@@ -264,6 +281,7 @@ public class DefaultNode implements Node, RaftServerService {
     public ReadIndexResponse handleReadIndexRequest(ReadIndexRequest readIndexRequest) {
         lock.lock();
         try {
+            LOG.info("收到读索引读请求, 任期[{}]", currTerm);
             return state != State.LEADER
                     ? new ReadIndexResponse(false, 0)
                     : new ReadIndexResponse(sendEntries(false), lastCommittedIndex);
@@ -363,7 +381,7 @@ public class DefaultNode implements Node, RaftServerService {
                     lastLogIndex = logRepository.getLastLogIndex();
                     long committedIndex = Math.min(request.committedIndex(), lastLogIndex);
                     LOG.info("将索引{}和{}之间的日志应用到状态机", lastCommittedIndex + 1, committedIndex);
-                    logRepository.getSuffix(lastCommittedIndex + 1, committedIndex).forEach(this::doApply);
+                    logRepository.getSuffix(lastCommittedIndex + 1, committedIndex).forEach(logEntry -> doApply(logEntry, false));
                     break;
                 }
                 try {
@@ -418,10 +436,8 @@ public class DefaultNode implements Node, RaftServerService {
         } finally {
             lock.unlock();
         }
-        ScopedValue.where(OLD_TERM_VALUE, request.term() - 1).run(() -> {
-            Ballot ballot = sendRequestVoteRequest(request);
-            handleRequestVoteResponse(request, ballot);
-        });
+        Ballot ballot = sendRequestVoteRequest(request);
+        handleRequestVoteResponse(request, ballot);
     }
 
     private void electSelf() {
@@ -444,18 +460,16 @@ public class DefaultNode implements Node, RaftServerService {
         } finally {
             lock.unlock();
         }
-        ScopedValue.where(OLD_TERM_VALUE, request.term()).run(() -> {
-            Ballot ballot = sendRequestVoteRequest(request);
-            handleRequestVoteResponse(request, ballot);
-        });
+        Ballot ballot = sendRequestVoteRequest(request);
+        handleRequestVoteResponse(request, ballot);
     }
 
     private Ballot sendRequestVoteRequest(RequestVoteRequest request) {
-        Ballot ballot = new Ballot(configuration.quorum(), request.preVote() ? "预投票" : "正式投票");
-        ballot.grant();
         String processName = request.preVote() ? "预投票" : "正式投票";
-        long oldTerm = OLD_TERM_VALUE.get();
-        configuration.getPeers().forEach(peer -> Thread.startVirtualThread(() -> {
+        long oldTerm = request.preVote() ? request.term() - 1 : request.term();
+        Ballot ballot = new Ballot(configuration.quorum(), processName);
+        ballot.grant();
+        configuration.getPeers().forEach(peer -> threadPool.execute(() -> {
             RpcRequest rpcRequest = new RpcRequest(peer.id(), request, configuration.getElectionTimeoutMs());
             RequestVoteResponse response;
             try {
@@ -493,7 +507,7 @@ public class DefaultNode implements Node, RaftServerService {
         boolean doUnlock = true;
         lock.lock();
         try {
-            long oldTerm = OLD_TERM_VALUE.get();
+            long oldTerm = request.preVote() ? request.term() - 1 : request.term();
             if (oldTerm != currTerm) {
                 LOG.info("取消{}投票. 任期由[{}]变更为[{}]", request.preVote() ? "预投票" : "正式投票", oldTerm, currTerm);
                 return;
@@ -532,8 +546,8 @@ public class DefaultNode implements Node, RaftServerService {
         configuration.getPeers().forEach(peer -> peer.setNextIndex(nextIndex));
         try {
             LOG.info("成为领导者后开始第一次追加日志");
-            apply(Command.noop());
-        } catch (ApplyException e) {
+            apply(ClientRequest.noop());
+        } catch (ServerException e) {
             LOG.info("成为领导者后第一次追加日志失败, 已下降为跟随者, 当前任期[{}]", currTerm);
             return;
         }
@@ -598,7 +612,7 @@ public class DefaultNode implements Node, RaftServerService {
                 }
             }
         }));
-        if (!ballot.isGranted(configuration.getRpcRequestTimeoutMs())) {
+        if (!ballot.isGranted(configuration.getElectionTimeoutMs())) {
             LOG.info("追加日志不被大多数节点认可, 可能是网络分区, 下降为跟随者");
             stepDown(currTerm);
             return false;

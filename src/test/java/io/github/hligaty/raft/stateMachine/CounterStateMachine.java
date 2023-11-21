@@ -1,6 +1,5 @@
 package io.github.hligaty.raft.stateMachine;
 
-import io.github.hligaty.raft.rpc.packet.Command;
 import org.rocksdb.RocksDBException;
 
 import java.io.Serializable;
@@ -11,8 +10,8 @@ public class CounterStateMachine extends RocksDBStateMachine {
 
     @SuppressWarnings("unchecked")
     @Override
-    public <R extends Serializable> R apply(Command command) throws RocksDBException {
-        switch (command.data()) {
+    public <R extends Serializable> R apply(Serializable data) throws RocksDBException {
+        switch (data) {
             case Increment ignored: {
                 byte[] valueBytes = db.get(COUNTER_IDX_KEY);
                 Long count = valueBytes == null ? 0L : serializer.deserializeJavaObject(valueBytes, Long.class);

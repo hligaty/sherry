@@ -1,6 +1,6 @@
 package io.github.hligaty.raft.infrastructure;
 
-import io.github.hligaty.raft.rpc.packet.Command;
+import io.github.hligaty.raft.rpc.packet.ClientRequest;
 import io.github.hligaty.raft.storage.impl.LocalRaftMetaRepository;
 import io.github.hligaty.raft.storage.LogRepository;
 import io.github.hligaty.raft.storage.impl.RocksDBLogRepository;
@@ -46,10 +46,10 @@ public class StoreTest {
         Path path = Paths.get("testRocksDBRepository");
         Files.createDirectories(path);
         try (LogRepository logRepository = new RocksDBLogRepository(path)) {
-            logRepository.appendEntry(0, Command.noop());
+            logRepository.appendEntry(0, ClientRequest.noop().data());
             long start = System.currentTimeMillis();
             for (int i = 0; i < 100; i++) {
-                logRepository.appendEntry(0, Command.noop());
+                logRepository.appendEntry(0, ClientRequest.noop().data());
             }
             System.out.println(System.currentTimeMillis() - start);
         }

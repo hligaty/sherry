@@ -1,7 +1,7 @@
 package io.github.hligaty.raft.storage.impl;
 
 import io.fury.Fury;
-import io.github.hligaty.raft.rpc.packet.Command;
+import io.github.hligaty.raft.rpc.packet.ClientRequest;
 import io.github.hligaty.raft.storage.LogEntry;
 import io.github.hligaty.raft.storage.LogId;
 import io.github.hligaty.raft.storage.LogRepository;
@@ -17,6 +17,7 @@ import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,7 +42,7 @@ public class RocksDBLogRepository implements LogRepository {
     private final Lock lock = new ReentrantLock();
 
     private final RocksDB db;
-    
+
     private final DBOptions dbOptions;
 
     private final WriteOptions writeOptions;
@@ -49,7 +50,9 @@ public class RocksDBLogRepository implements LogRepository {
     private final ReadOptions totalOrderReadOptions;
 
     private final ColumnFamilyHandle defaultHandle;
-    
+
+    private LogId lastLogId;
+
     public RocksDBLogRepository(Path dir) {
         this.dbOptions = new DBOptions().setCreateIfMissing(true);
         this.writeOptions = new WriteOptions();
@@ -69,21 +72,23 @@ public class RocksDBLogRepository implements LogRepository {
             assert columnFamilyHandles.size() == 1;
             this.defaultHandle = columnFamilyHandles.get(0);
             if (getEntry(0) == null) {
-                db.put(defaultHandle, writeOptions, getKeyBytes(0), serializer.serializeJavaObject(new LogEntry(LogId.zero(), Command.noop())));
+                db.put(defaultHandle, writeOptions, getKeyBytes(0), serializer.serializeJavaObject(new LogEntry(LogId.zero(), ClientRequest.noop().data())));
             }
+            lastLogId = getLastLogId();
         } catch (RocksDBException | IOException e) {
             throw new StoreException(e);
         }
     }
 
     @Override
-    public LogEntry appendEntry(long term, Command command) {
+    public LogEntry appendEntry(long term, Serializable data) {
         lock.lock();
         try {
             long lastLogIndex = getLastLogIndex();
-            LogEntry logEntry = new LogEntry(new LogId(term, lastLogIndex + 1), command);
+            LogEntry logEntry = new LogEntry(new LogId(term, lastLogIndex + 1), data);
             byte[] valueBytes = serializer.serializeJavaObject(logEntry);
             db.put(defaultHandle, writeOptions, getKeyBytes(logEntry.index()), valueBytes);
+            lastLogId = logEntry.logId();
             return logEntry;
         } catch (RocksDBException e) {
             throw new StoreException(e);
@@ -111,6 +116,7 @@ public class RocksDBLogRepository implements LogRepository {
                 batch.put(defaultHandle, getKeyBytes(logEntry.index()), valueBytes);
             }
             db.write(writeOptions, batch);
+            lastLogId = logEntries.getLast().logId();
         } catch (RocksDBException e) {
             throw new StoreException(e);
         } finally {
@@ -134,9 +140,8 @@ public class RocksDBLogRepository implements LogRepository {
     @Override
     public long getLastLogIndex() {
         lock.lock();
-        try (final RocksIterator it = db.newIterator(defaultHandle, totalOrderReadOptions)) {
-            it.seekToLast();
-            return getKey(it.key());
+        try {
+            return lastLogId.index();
         } finally {
             lock.unlock();
         }
@@ -145,10 +150,15 @@ public class RocksDBLogRepository implements LogRepository {
     @Override
     public LogId getLastLogId() {
         lock.lock();
-        try (final RocksIterator it = db.newIterator(defaultHandle, totalOrderReadOptions)) {
-            it.seekToLast();
-            byte[] value = it.value();
-            return serializer.deserializeJavaObject(value, LogEntry.class).logId();
+        try {
+            if (lastLogId != null) {
+                return lastLogId;
+            }
+            try (final RocksIterator it = db.newIterator(defaultHandle, totalOrderReadOptions)) {
+                it.seekToLast();
+                byte[] value = it.value();
+                return serializer.deserializeJavaObject(value, LogEntry.class).logId();
+            }
         } finally {
             lock.unlock();
         }
@@ -161,17 +171,22 @@ public class RocksDBLogRepository implements LogRepository {
 
     public List<LogEntry> getSuffix(long beginIndex, Function<RocksIterator, Boolean> breakFunction) {
         lock.lock();
-        try (final RocksIterator it = db.newIterator(defaultHandle, totalOrderReadOptions)) {
-            it.seek(getKeyBytes(beginIndex));
-            if (!it.isValid()) {
+        try {
+            if (beginIndex > lastLogId.index()) {
                 return Collections.emptyList();
             }
-            List<LogEntry> result = new ArrayList<>();
-            while (it.isValid() && !breakFunction.apply(it)) {
-                result.add(serializer.deserializeJavaObject(it.value(), LogEntry.class));
-                it.next();
+            try (final RocksIterator it = db.newIterator(defaultHandle, totalOrderReadOptions)) {
+                it.seek(getKeyBytes(beginIndex));
+                if (!it.isValid()) {
+                    return Collections.emptyList();
+                }
+                List<LogEntry> result = new ArrayList<>();
+                while (it.isValid() && !breakFunction.apply(it)) {
+                    result.add(serializer.deserializeJavaObject(it.value(), LogEntry.class));
+                    it.next();
+                }
+                return result;
             }
-            return result;
         } finally {
             lock.unlock();
         }
@@ -189,6 +204,9 @@ public class RocksDBLogRepository implements LogRepository {
     public void truncateSuffix(long lastIndexKept) {
         lock.lock();
         try {
+            if (lastIndexKept >= lastLogId.index()) {
+                return;
+            }
             db.deleteRange(defaultHandle, writeOptions, getKeyBytes(lastIndexKept + 1), getKeyBytes(getLastLogIndex() + 1));
         } catch (RocksDBException e) {
             throw new StoreException(e);

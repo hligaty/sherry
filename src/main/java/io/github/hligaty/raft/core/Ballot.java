@@ -6,6 +6,9 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 记录投票
+ */
 public class Ballot {
 
     private static final Logger LOG = LoggerFactory.getLogger(Ballot.class);

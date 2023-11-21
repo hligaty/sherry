@@ -6,11 +6,13 @@ import io.github.hligaty.BaseTest;
 import io.github.hligaty.raft.config.Configuration;
 import io.github.hligaty.raft.core.DefaultNode;
 import io.github.hligaty.raft.core.ErrorType;
-import io.github.hligaty.raft.rpc.packet.Command;
+import io.github.hligaty.raft.rpc.packet.ClientRequest;
+import io.github.hligaty.raft.rpc.packet.ClientResponse;
 import io.github.hligaty.raft.rpc.packet.PeerId;
 import io.github.hligaty.raft.stateMachine.CounterStateMachine;
 import io.github.hligaty.raft.stateMachine.KVStateMachine;
 import io.github.hligaty.raft.stateMachine.RocksDBStateMachine;
+import io.github.hligaty.raft.util.Tracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +33,7 @@ public class RaftLocalClusterTest extends BaseTest {
 
     // ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓  配置  ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
 
-    private static final List<PeerId> allPeerIds = Stream.of(4869, 4870, 4871)
+    private static final List<PeerId> allPeerIds = Stream.of(4869, 4870, 4871, 4872, 4873)
             .map(port -> new PeerId("localhost", port))
             .toList();
 
@@ -39,40 +41,6 @@ public class RaftLocalClusterTest extends BaseTest {
 //    private static final RocksDBStateMachine rocksDBStateMachine = new KVStateMachine();
 
     // ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑  配置  ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-
-    public static class RaftCli {
-        /**
-         * 启动参数(复制 VM 参数的 IDEA 小技巧: 鼠标左键放在 -ea 前面的同时按住键盘 Alt, 向右拖动鼠标, 即可复制没有 Javadoc 星号的 VM 参数):
-         * --add-opens=java.base/java.lang=ALL-UNNAMED
-         * --add-opens=java.base/java.io=ALL-UNNAMED
-         * --add-opens=java.base/java.math=ALL-UNNAMED
-         * --add-opens=java.base/java.net=ALL-UNNAMED
-         * --add-opens=java.base/java.nio=ALL-UNNAMED
-         * --add-opens=java.base/java.security=ALL-UNNAMED
-         * --add-opens=java.base/java.text=ALL-UNNAMED
-         * --add-opens=java.base/java.time=ALL-UNNAMED
-         * --add-opens=java.base/java.util=ALL-UNNAMED
-         * --add-opens=java.base/jdk.internal.access=ALL-UNNAMED
-         * --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED
-         */
-        public static void main(String[] args) {
-            rpcClient.startup();
-            try (Scanner scanner = new Scanner(System.in)) {
-                while (scanner.hasNextLine()) {
-                    String content = scanner.nextLine();
-                    String[] params = Arrays.stream(content.split(" "))
-                            .filter(param -> !param.isBlank())
-                            .toArray(String[]::new);
-                    if (rocksDBStateMachine instanceof KVStateMachine) {
-                        executeKVCommand(params);
-                    } else if (rocksDBStateMachine instanceof CounterStateMachine) {
-                        executeCounter(params);
-                    }
-                    System.out.println("Please enter the command:");
-                }
-            }
-        }
-    }
 
     public static class RaftServer {
         /**
@@ -106,26 +74,66 @@ public class RaftLocalClusterTest extends BaseTest {
         }
     }
 
+    public static class RaftCli {
+        /**
+         * 启动参数(复制 VM 参数的 IDEA 小技巧: 鼠标左键放在 -ea 前面的同时按住键盘 Alt, 向右拖动鼠标, 即可复制没有 Javadoc 星号的 VM 参数):
+         * --add-opens=java.base/java.lang=ALL-UNNAMED
+         * --add-opens=java.base/java.io=ALL-UNNAMED
+         * --add-opens=java.base/java.math=ALL-UNNAMED
+         * --add-opens=java.base/java.net=ALL-UNNAMED
+         * --add-opens=java.base/java.nio=ALL-UNNAMED
+         * --add-opens=java.base/java.security=ALL-UNNAMED
+         * --add-opens=java.base/java.text=ALL-UNNAMED
+         * --add-opens=java.base/java.time=ALL-UNNAMED
+         * --add-opens=java.base/java.util=ALL-UNNAMED
+         * --add-opens=java.base/jdk.internal.access=ALL-UNNAMED
+         * --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED
+         */
+        public static void main(String[] args) {
+            rpcClient.startup();
+            try (Scanner scanner = new Scanner(System.in)) {
+                while (scanner.hasNextLine()) {
+                    String content = scanner.nextLine();
+                    String[] params = Arrays.stream(content.split(" "))
+                            .filter(param -> !param.isBlank())
+                            .toArray(String[]::new);
+                    int times = 1;
+                    if (params.length > 2 && params[params.length - 2].equals("-n")) {
+                        times = Integer.parseInt(params[params.length - 1]);
+                    }
+                    for (; times != 0; times--) {
+                        if (rocksDBStateMachine instanceof KVStateMachine) {
+                            executeKVCommand(params);
+                        } else if (rocksDBStateMachine instanceof CounterStateMachine) {
+                            executeCounter(params);
+                        }
+                    }
+                    System.out.println("Please enter the command:");
+                }
+            }
+        }
+    }
+
     private static void executeKVCommand(String[] args) {
         switch (args[0]) {
             case "set": {
                 KVStateMachine.Set set = new KVStateMachine.Set();
                 set.key = args[1];
                 set.value = args[2];
-                sendCommand(Command.write(set));
+                sendCommand(ClientRequest.write(set));
                 break;
             }
             case "get": {
                 KVStateMachine.Get get = new KVStateMachine.Get();
                 get.key = args[1];
-                Object value = sendCommand(Command.read(get));
+                Object value = sendCommand(ClientRequest.read(get));
                 System.out.println(value);
                 break;
             }
             case "delete": {
                 KVStateMachine.Delete delete = new KVStateMachine.Delete();
                 delete.key = args[1];
-                sendCommand(Command.write(delete));
+                sendCommand(ClientRequest.write(delete));
                 break;
             }
             default:
@@ -137,13 +145,13 @@ public class RaftLocalClusterTest extends BaseTest {
         switch (args[0]) {
             case "increment": {
                 CounterStateMachine.Increment increment = new CounterStateMachine.Increment();
-                Object object = sendCommand(Command.write(increment));
+                Object object = sendCommand(ClientRequest.write(increment));
                 System.out.println(object);
                 break;
             }
             case "get": {
                 CounterStateMachine.Get get = new CounterStateMachine.Get();
-                Object value = sendCommand(Command.read(get));
+                Object value = sendCommand(ClientRequest.read(get));
                 System.out.println(value);
                 break;
             }
@@ -152,33 +160,41 @@ public class RaftLocalClusterTest extends BaseTest {
         }
     }
 
-    static Object sendCommand(Command command) {
-        List<PeerId> peerIds = new ArrayList<>(allPeerIds);
-        if (leaderPort != null) { // 优先尝试刚才的集群领导者
-            peerIds.removeIf(peerId -> peerId.port() == leaderPort);
-            peerIds.add(0, new PeerId("localhost", leaderPort));
-        }
-        if (command.readOnly()) { // 如果是读命令就随机选一个处理
-            Collections.shuffle(peerIds);
-        }
-        for (PeerId peerId : peerIds) {
-            try {
-                long start = System.currentTimeMillis();
-                Object result = rpcClient.invokeSync("localhost:" + peerId.port(), command, 5000);
-                leaderPort = peerId.port();
-                System.out.printf("Succeed to execute remote invoke. port[%s], leaderPort[%s], time[%s]%n",
-                        peerId.port(), leaderPort, System.currentTimeMillis() - start);
-                return result;
-            } catch (RemotingException | InterruptedException e) {
-                if (e.getCause().getMessage().contains(ErrorType.REPLICATION_FAIL.name())) {
-                    LOG.error("Failed to execute remote invoke, reason: replication fail, port[{}], data[{}]", peerId.port(), command.data(), e);
-                    return null;
-                } else if (!e.getCause().getMessage().contains(ErrorType.NOT_LEADER.name())) {
-                    LOG.error("Failed to execute remote invoke, reason: [{}], port[{}], data[{}]", e.getMessage(), peerId.port(), command.data());
+    static Object sendCommand(ClientRequest request) {
+        Tracker.start(request.traceId());
+        try {
+            List<PeerId> peerIds = new ArrayList<>(allPeerIds);
+            if (leaderPort != null) { // 优先尝试刚才的集群领导者
+                peerIds.removeIf(peerId -> peerId.port() == leaderPort);
+                peerIds.add(0, new PeerId("localhost", leaderPort));
+            }
+            if (request.readOnly()) { // 如果是读命令就随机选一个处理
+                Collections.shuffle(peerIds);
+            }
+            for (PeerId peerId : peerIds) {
+                try {
+                    long start = System.currentTimeMillis();
+                    ClientResponse response = (ClientResponse) rpcClient.invokeSync("localhost:" + peerId.port(), request, 5000);
+                    if (!request.readOnly()) {
+                        leaderPort = peerId.port();
+                    }
+                    if (response.success()) {
+                        LOG.info("Succeed to execute remote invoke. port[{}], leaderPort[{}], time[{}]",
+                                peerId.port(), leaderPort, System.currentTimeMillis() - start);
+                        return response.data();
+                    }
+                    if (response.errorType() == ErrorType.REPLICATION_FAIL) {
+                        LOG.error("Failed to execute remote invoke, reason: [{}], port[{}], data[{}]", response.errorType(), peerId.port(), request.data());
+                        return null;
+                    }
+                } catch (RemotingException | InterruptedException e) {
+                    LOG.error("Failed to execute remote invoke, reason: [Unknown, {}].", e.getMessage());
                 }
             }
+            LOG.error("Failed to execute remote invoke, reason: all nodes timeout or not found cluster leader, data[{}]", request.data());
+            return null;
+        } finally {
+            Tracker.stop();
         }
-        LOG.error("Failed to execute remote invoke, reason: all nodes timeout or not found cluster leader, data[{}]", command.data());
-        return null;
     }
 }
