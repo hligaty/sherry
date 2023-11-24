@@ -11,15 +11,15 @@ public class KVStateMachine extends RocksDBStateMachine {
     public <R extends Serializable> R apply(Serializable data) throws RocksDBException {
         switch (data) {
             case Get get -> {
-                byte[] bytes = db.get(serializer.serializeJavaObject(get.key));
-                return bytes == null ? null : (R) serializer.deserialize(bytes);
+                byte[] bytes = db.get(serializer.serialize(get.key));
+                return bytes == null ? null : (R) serializer.deserialize(bytes, String.class);
             }
             case Set set -> {
-                db.put(serializer.serializeJavaObject(set.key), serializer.serialize(set.value));
+                db.put(serializer.serialize(set.key), serializer.serialize(set.value));
                 return null;
             }
-            case Delete deleteRequest -> {
-                db.delete(serializer.serializeJavaObject(deleteRequest.key));
+            case Delete delete -> {
+                db.delete(serializer.serialize(delete.key));
                 return null;
             }
             case null, default -> {

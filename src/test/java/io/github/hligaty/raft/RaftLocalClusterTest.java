@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.Scanner;
 import java.util.stream.Stream;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 public class RaftLocalClusterTest extends BaseTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(RaftLocalClusterTest.class);
@@ -37,8 +39,8 @@ public class RaftLocalClusterTest extends BaseTest {
             .map(port -> new PeerId("localhost", port))
             .toList();
 
-    private static final RocksDBStateMachine rocksDBStateMachine = new CounterStateMachine();
-//    private static final RocksDBStateMachine rocksDBStateMachine = new KVStateMachine();
+//    private static final RocksDBStateMachine rocksDBStateMachine = new CounterStateMachine();
+    private static final RocksDBStateMachine rocksDBStateMachine = new KVStateMachine();
 
     // ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑  配置  ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
 
@@ -93,70 +95,86 @@ public class RaftLocalClusterTest extends BaseTest {
             rpcClient.startup();
             try (Scanner scanner = new Scanner(System.in)) {
                 while (scanner.hasNextLine()) {
+                    long start = System.currentTimeMillis();
                     String content = scanner.nextLine();
                     String[] params = Arrays.stream(content.split(" "))
                             .filter(param -> !param.isBlank())
                             .toArray(String[]::new);
                     int times = 1;
-                    if (params.length > 2 && params[params.length - 2].equals("-n")) {
-                        times = Integer.parseInt(params[params.length - 1]);
-                    }
-                    for (; times != 0; times--) {
-                        if (rocksDBStateMachine instanceof KVStateMachine) {
-                            executeKVCommand(params);
-                        } else if (rocksDBStateMachine instanceof CounterStateMachine) {
-                            executeCounter(params);
+                    String expected = null;
+                    boolean enableResultValidate = false;
+                    if (params.length > 2) {
+                        for (int i = 0; i < params.length; i++) {
+                            String param = params[i];
+                            switch (param) {
+                                case "-n": // "-n 5" 表示执行 5 次
+                                    times = Integer.parseInt(params[i + 1]);
+                                    break;
+                                case "--assert": // "--assert foo" 表示预期返回结果是 foo
+                                    enableResultValidate = true;
+                                    expected = params[i + 1];
+                            }
                         }
                     }
-                    System.out.println("Please enter the command:");
+                    for (; times != 0; times--) {
+                        Object actual = switch (rocksDBStateMachine) {
+                            case KVStateMachine __:
+                                yield executeKVCommand(params);
+                            case CounterStateMachine __:
+                                yield executeCounter(params);
+                            default:
+                                throw new IllegalStateException("如果你换成了自己写的状态机, 想继续用这个 CLI 测试的话需要在这里增加处理");
+                        };
+                        if (enableResultValidate) {
+                            assertEquals(expected, actual != null ? actual.toString() : null);
+                        }
+                    }
+                    System.out.printf("Please enter the command(command execution time%s):%n", System.currentTimeMillis() - start);
                 }
             }
         }
     }
 
-    private static void executeKVCommand(String[] args) {
+    private static Object executeKVCommand(String[] args) {
         switch (args[0]) {
             case "set": {
-                KVStateMachine.Set set = new KVStateMachine.Set();
-                set.key = args[1];
-                set.value = args[2];
-                sendCommand(ClientRequest.write(set));
-                break;
+                KVStateMachine.Set set = new KVStateMachine.Set(args[1], args[2]);
+                return sendCommand(ClientRequest.write(set));
             }
             case "get": {
-                KVStateMachine.Get get = new KVStateMachine.Get();
-                get.key = args[1];
+                KVStateMachine.Get get = new KVStateMachine.Get(args[1]);
                 Object value = sendCommand(ClientRequest.read(get));
                 System.out.println(value);
-                break;
+                return value;
             }
             case "delete": {
-                KVStateMachine.Delete delete = new KVStateMachine.Delete();
-                delete.key = args[1];
+                KVStateMachine.Delete delete = new KVStateMachine.Delete(args[1]);
                 sendCommand(ClientRequest.write(delete));
-                break;
+                return null;
             }
             default:
                 System.out.println("Unknown command.");
+                return null;
         }
     }
 
-    private static void executeCounter(String[] args) {
+    private static Object executeCounter(String[] args) {
         switch (args[0]) {
             case "increment": {
                 CounterStateMachine.Increment increment = new CounterStateMachine.Increment();
                 Object object = sendCommand(ClientRequest.write(increment));
                 System.out.println(object);
-                break;
+                return object;
             }
             case "get": {
                 CounterStateMachine.Get get = new CounterStateMachine.Get();
                 Object value = sendCommand(ClientRequest.read(get));
                 System.out.println(value);
-                break;
+                return value;
             }
             default:
                 System.out.println("Unknown command.");
+                return null;
         }
     }
 

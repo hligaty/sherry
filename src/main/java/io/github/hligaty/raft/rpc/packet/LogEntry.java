@@ -1,5 +1,6 @@
 package io.github.hligaty.raft.rpc.packet;
 
+
 import java.io.Serial;
 import java.io.Serializable;
 import java.util.Objects;
@@ -7,30 +8,28 @@ import java.util.Objects;
 public final class LogEntry implements Serializable {
     @Serial
     private static final long serialVersionUID = 0L;
-    private final long term;
-    private final long index;
-    private final Object object;
+    private final LogId logId;
+    private final Serializable data;
 
-    public LogEntry(
-            long term,
-            long index,
-            Object object
-    ) {
-        this.term = term;
-        this.index = index;
-        this.object = object;
+    public LogEntry(LogId logId, Serializable data) {
+        this.logId = logId;
+        this.data = data;
     }
 
     public long term() {
-        return term;
+        return logId.term();
     }
 
     public long index() {
-        return index;
+        return logId.index();
     }
 
-    public Object object() {
-        return object;
+    public LogId logId() {
+        return logId;
+    }
+
+    public Serializable data() {
+        return data;
     }
 
     @Override
@@ -38,22 +37,21 @@ public final class LogEntry implements Serializable {
         if (obj == this) return true;
         if (obj == null || obj.getClass() != this.getClass()) return false;
         var that = (LogEntry) obj;
-        return this.term == that.term &&
-               this.index == that.index &&
-               Objects.equals(this.object, that.object);
+        return Objects.equals(this.logId, that.logId) &&
+               Objects.equals(this.data, that.data);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(term, index, object);
+        return Objects.hash(logId, data);
     }
 
     @Override
     public String toString() {
         return "LogEntry[" +
-               "term=" + term + ", " +
-               "index=" + index + ", " +
-               "object=" + object + ']';
+               "logId=" + logId + ", " +
+               "data=" + data + ']';
     }
+
 
 }

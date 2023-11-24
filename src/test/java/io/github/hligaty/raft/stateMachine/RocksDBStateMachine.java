@@ -1,8 +1,8 @@
 package io.github.hligaty.raft.stateMachine;
 
-import io.fury.Fury;
 import io.github.hligaty.raft.StateMachine;
 import io.github.hligaty.raft.storage.StoreException;
+import io.github.hligaty.raft.util.Serializer;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
@@ -17,15 +17,8 @@ public abstract class RocksDBStateMachine implements StateMachine {
 
     protected static final Logger LOG = LoggerFactory.getLogger(KVStateMachine.class);
 
-    protected static final Fury serializer;
-
-    static {
-        serializer = Fury.builder()
-                .requireClassRegistration(false)
-                .build();
-        RocksDB.loadLibrary();
-    }
-
+    protected static final Serializer serializer = Serializer.getInstance();
+    
     protected RocksDB db;
     
     public final void startup(Path dir) {

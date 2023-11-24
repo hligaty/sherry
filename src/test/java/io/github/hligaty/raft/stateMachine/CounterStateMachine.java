@@ -6,7 +6,7 @@ import java.io.Serializable;
 
 public class CounterStateMachine extends RocksDBStateMachine {
 
-    private static final byte[] COUNTER_IDX_KEY = serializer.serializeJavaObject("counter");
+    private static final byte[] COUNTER_IDX_KEY = serializer.serialize("counter");
 
     @SuppressWarnings("unchecked")
     @Override
@@ -14,29 +14,21 @@ public class CounterStateMachine extends RocksDBStateMachine {
         switch (data) {
             case Increment ignored: {
                 byte[] valueBytes = db.get(COUNTER_IDX_KEY);
-                Long count = valueBytes == null ? 0L : serializer.deserializeJavaObject(valueBytes, Long.class);
-                db.put(COUNTER_IDX_KEY, serializer.serializeJavaObject(++count));
+                Long count = valueBytes == null ? 0L : serializer.deserialize(valueBytes, Long.class);
+                db.put(COUNTER_IDX_KEY, serializer.serialize(++count));
                 return (R) count;
             }
             case Get ignored: {
-                return (R) serializer.deserializeJavaObject(db.get(COUNTER_IDX_KEY), Long.class);
+                return (R) serializer.deserialize(db.get(COUNTER_IDX_KEY), Long.class);
             }
             case null, default:
                 return null;
         }
     }
 
-    public static class Increment implements Serializable {
-        @Override
-        public String toString() {
-            return "Increment{}";
-        }
+    public record Increment() implements Serializable {
     }
 
-    public static class Get implements Serializable {
-        @Override
-        public String toString() {
-            return "Get{}";
-        }
+    public record Get() implements Serializable {
     }
 }

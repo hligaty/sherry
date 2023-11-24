@@ -1,4 +1,4 @@
-package io.github.hligaty.raft.storage;
+package io.github.hligaty.raft.rpc.packet;
 
 import javax.annotation.Nonnull;
 import java.io.Serial;
@@ -6,17 +6,16 @@ import java.io.Serializable;
 import java.util.Objects;
 
 public final class LogId implements Serializable, Comparable<LogId> {
+
+    private static final LogId ZERO = new LogId(0, 0);
     @Serial
     private static final long serialVersionUID = 0L;
-    private static final LogId ZERO = new LogId(0, 0);
     private final long term;
     private final long index;
 
-    public LogId(
-            long term, long index
-    ) {
-        this.index = index;
+    public LogId(long term, long index) {
         this.term = term;
+        this.index = index;
     }
 
     @Override
@@ -29,16 +28,21 @@ public final class LogId implements Serializable, Comparable<LogId> {
         }
     }
 
+    public static LogId zero() {
+        return ZERO;
+    }
+
+    @Override
+    public String toString() {
+        return String.format("term=%s, index=%s", term, index);
+    }
+
     public long term() {
         return term;
     }
 
     public long index() {
         return index;
-    }
-    
-    public static LogId zero() {
-        return ZERO;
     }
 
     @Override
@@ -55,9 +59,5 @@ public final class LogId implements Serializable, Comparable<LogId> {
         return Objects.hash(term, index);
     }
 
-    @Override
-    public String toString() {
-        return String.format("term=%s, index=%s", term, index);
-    }
 
 }

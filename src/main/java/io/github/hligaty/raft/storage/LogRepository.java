@@ -1,5 +1,8 @@
 package io.github.hligaty.raft.storage;
 
+import io.github.hligaty.raft.rpc.packet.LogEntry;
+import io.github.hligaty.raft.rpc.packet.LogId;
+
 import java.io.Closeable;
 import java.io.Serializable;
 import java.util.List;

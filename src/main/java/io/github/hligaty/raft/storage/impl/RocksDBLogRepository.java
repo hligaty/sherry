@@ -1,11 +1,11 @@
 package io.github.hligaty.raft.storage.impl;
 
-import io.fury.Fury;
 import io.github.hligaty.raft.rpc.packet.ClientRequest;
-import io.github.hligaty.raft.storage.LogEntry;
-import io.github.hligaty.raft.storage.LogId;
+import io.github.hligaty.raft.rpc.packet.LogEntry;
+import io.github.hligaty.raft.rpc.packet.LogId;
 import io.github.hligaty.raft.storage.LogRepository;
 import io.github.hligaty.raft.storage.StoreException;
+import io.github.hligaty.raft.util.Serializer;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.DBOptions;
@@ -30,14 +30,7 @@ import java.util.function.Function;
 
 public class RocksDBLogRepository implements LogRepository {
 
-    private static final Fury serializer;
-
-    static {
-        serializer = Fury.builder()
-                .requireClassRegistration(false)
-                .build();
-        RocksDB.loadLibrary();
-    }
+    private final Serializer serializer = Serializer.getInstance();
 
     private final Lock lock = new ReentrantLock();
 
@@ -72,7 +65,7 @@ public class RocksDBLogRepository implements LogRepository {
             assert columnFamilyHandles.size() == 1;
             this.defaultHandle = columnFamilyHandles.get(0);
             if (getEntry(0) == null) {
-                db.put(defaultHandle, writeOptions, getKeyBytes(0), serializer.serializeJavaObject(new LogEntry(LogId.zero(), ClientRequest.noop().data())));
+                db.put(defaultHandle, writeOptions, getKeyBytes(0), serializer.serialize(new LogEntry(LogId.zero(), ClientRequest.noop().data())));
             }
             lastLogId = getLastLogId();
         } catch (RocksDBException | IOException e) {
@@ -86,7 +79,7 @@ public class RocksDBLogRepository implements LogRepository {
         try {
             long lastLogIndex = getLastLogIndex();
             LogEntry logEntry = new LogEntry(new LogId(term, lastLogIndex + 1), data);
-            byte[] valueBytes = serializer.serializeJavaObject(logEntry);
+            byte[] valueBytes = serializer.serialize(logEntry);
             db.put(defaultHandle, writeOptions, getKeyBytes(logEntry.index()), valueBytes);
             lastLogId = logEntry.logId();
             return logEntry;
@@ -112,7 +105,7 @@ public class RocksDBLogRepository implements LogRepository {
         lock.lock();
         try (WriteBatch batch = new WriteBatch()) {
             for (LogEntry logEntry : logEntries) {
-                byte[] valueBytes = serializer.serializeJavaObject(logEntry);
+                byte[] valueBytes = serializer.serialize(logEntry);
                 batch.put(defaultHandle, getKeyBytes(logEntry.index()), valueBytes);
             }
             db.write(writeOptions, batch);
@@ -129,7 +122,7 @@ public class RocksDBLogRepository implements LogRepository {
         lock.lock();
         try {
             byte[] valueBytes = db.get(defaultHandle, totalOrderReadOptions, getKeyBytes(index));
-            return valueBytes == null ? null : serializer.deserializeJavaObject(valueBytes, LogEntry.class);
+            return valueBytes == null ? null : serializer.deserialize(valueBytes, LogEntry.class);
         } catch (RocksDBException e) {
             throw new StoreException(e);
         } finally {
@@ -157,7 +150,7 @@ public class RocksDBLogRepository implements LogRepository {
             try (final RocksIterator it = db.newIterator(defaultHandle, totalOrderReadOptions)) {
                 it.seekToLast();
                 byte[] value = it.value();
-                return serializer.deserializeJavaObject(value, LogEntry.class).logId();
+                return serializer.deserialize(value, LogEntry.class).logId();
             }
         } finally {
             lock.unlock();
@@ -182,7 +175,7 @@ public class RocksDBLogRepository implements LogRepository {
                 }
                 List<LogEntry> result = new ArrayList<>();
                 while (it.isValid() && !breakFunction.apply(it)) {
-                    result.add(serializer.deserializeJavaObject(it.value(), LogEntry.class));
+                    result.add(serializer.deserialize(it.value(), LogEntry.class));
                     it.next();
                 }
                 return result;
