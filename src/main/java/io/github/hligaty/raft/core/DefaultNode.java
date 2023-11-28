@@ -475,7 +475,7 @@ public class DefaultNode implements Node, RaftServerService {
             try {
                 response = (RequestVoteResponse) rpcService.sendRequest(rpcRequest);
             } catch (Exception e) {
-                LOG.info("节点[{}]{}投票结果: 拒绝. 可能存在网络分区. 当前节点任期[{}]", peer.id(), processName, currTerm);
+                LOG.info("节点[{}][{}]投票结果: 拒绝. 可能存在网络分区. 当前节点任期[{}]", peer.id(), processName, currTerm);
                 if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
                     LOG.error("出错原因如下", e);
                 }
@@ -484,15 +484,15 @@ public class DefaultNode implements Node, RaftServerService {
             lock.lock();
             try {
                 if (oldTerm != currTerm) {
-                    LOG.info("节点[{}]{}投票结果: 拒绝. 任期由[{}]变更为[{}]", peer.id(), processName, oldTerm, currTerm);
+                    LOG.info("节点[{}][{}]投票结果: 拒绝. 任期由[{}]变更为[{}]", peer.id(), processName, oldTerm, currTerm);
                 } else if (response.term() > request.term()) {
-                    LOG.info("节点[{}]{}投票结果: 拒绝. 任期[{}]更高. 当前节点任期:[{}]", peer.id(), processName, response.term(), request.term());
+                    LOG.info("节点[{}][{}]投票结果: 拒绝. 任期[{}]更高. 当前节点任期:[{}]", peer.id(), processName, response.term(), request.term());
                     stepDown(response.term());
                 } else if (response.granted()) {
-                    LOG.info("节点[{}]{}投票结果: 赞同. 当前节点任期:[{}]", peer.id(), processName, request.term());
+                    LOG.info("节点[{}][{}]投票结果: 赞同. 当前节点任期:[{}]", peer.id(), processName, request.term());
                     ballot.grant();
                 } else {
-                    LOG.info("节点[{}]{}投票结果: 拒绝. 对方任期[{}]不大, 但本地日志索引[{}]少. 当前节点任期:[{}], ",
+                    LOG.info("节点[{}][{}]投票结果: 拒绝. 对方任期[{}]不大, 但本地日志索引[{}]少. 当前节点任期:[{}], ",
                             peer.id(), processName, response.term(), request.lastLogIndex(), request.term());
                 }
             } finally {
