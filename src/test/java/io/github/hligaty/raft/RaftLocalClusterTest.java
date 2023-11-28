@@ -138,17 +138,21 @@ public class RaftLocalClusterTest extends BaseTest {
     private static Object executeKVCommand(String[] args) {
         switch (args[0]) {
             case "set": {
-                KVStateMachine.Set set = new KVStateMachine.Set(args[1], args[2]);
+                KVStateMachine.Set set = new KVStateMachine.Set();
+                set.key = args[1];
+                set.value = args[1];
                 return sendCommand(ClientRequest.write(set));
             }
             case "get": {
-                KVStateMachine.Get get = new KVStateMachine.Get(args[1]);
+                KVStateMachine.Get get = new KVStateMachine.Get();
+                get.key = args[1];
                 Object value = sendCommand(ClientRequest.read(get));
                 System.out.println(value);
                 return value;
             }
             case "delete": {
-                KVStateMachine.Delete delete = new KVStateMachine.Delete(args[1]);
+                KVStateMachine.Delete delete = new KVStateMachine.Delete();
+                delete.key = args[1];
                 sendCommand(ClientRequest.write(delete));
                 return null;
             }
