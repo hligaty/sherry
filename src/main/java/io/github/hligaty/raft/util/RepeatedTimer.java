@@ -71,13 +71,13 @@ public abstract class RepeatedTimer {
     }
 
     private void run() {
-        Tracker.start();
+        Tracer.start();
         try {
             onTrigger();
         } catch (Throwable throwable) {
             LOG.error("Uncaught exception in thread {}", Thread.currentThread(), throwable);
         } finally {
-            Tracker.stop();
+            Tracer.stop();
             lock.lock();
             try {
                 if (!stopped) {

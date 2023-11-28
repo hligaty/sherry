@@ -23,7 +23,7 @@ import io.github.hligaty.raft.storage.StoreException;
 import io.github.hligaty.raft.storage.impl.LocalRaftMetaRepository;
 import io.github.hligaty.raft.storage.impl.RocksDBLogRepository;
 import io.github.hligaty.raft.util.RepeatedTimer;
-import io.github.hligaty.raft.util.Tracker;
+import io.github.hligaty.raft.util.Tracer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -215,7 +215,7 @@ public class DefaultNode implements Node, RaftServerService {
         只需要让跟随者的状态机与领导者同步就可以了, 即通知领导者把它的日志全提交并通知跟随者也提交
          */
         LOG.info("跟随者开始执行读索引读");
-        ReadIndexRequest request = new ReadIndexRequest(Tracker.getId());
+        ReadIndexRequest request = new ReadIndexRequest(Tracer.getId());
         RpcRequest rpcRequest = new RpcRequest(leaderId, request, configuration.getRpcRequestTimeoutMs());
         if (
                 rpcRequest.remoteId().isEmpty()
@@ -426,7 +426,7 @@ public class DefaultNode implements Node, RaftServerService {
             LogId lastLogId = logRepository.getLastLogId();
             LOG.info("发起预投票, 预选任期:[{}], 最后的日志索引[{}]", currTerm + 1, lastLogId);
             request = new RequestVoteRequest(
-                    Tracker.getId(),
+                    Tracer.getId(),
                     configuration.getServerId(),
                     currTerm + 1, // 预投票不改变任期, 防止对称分区任期不断增加
                     lastLogId.index(),
@@ -450,7 +450,7 @@ public class DefaultNode implements Node, RaftServerService {
             leaderId = PeerId.emptyId();
             LOG.info("发起正式投票, 竞选任期:[{}], 最后的日志索引[{}]", currTerm, lastLogId);
             request = new RequestVoteRequest(
-                    Tracker.getId(),
+                    Tracer.getId(),
                     configuration.getServerId(),
                     currTerm,
                     lastLogId.index(),
@@ -562,7 +562,7 @@ public class DefaultNode implements Node, RaftServerService {
         long prevLogIndex = peer.nextIndex() - 1;
         long prevLogTerm = logRepository.getEntry(prevLogIndex).term();
         AppendEntriesRequest request = new AppendEntriesRequest(
-                Tracker.getId(),
+                Tracer.getId(),
                 configuration.getServerId(), currTerm,
                 Collections.emptyList(), prevLogTerm, prevLogIndex,
                 lastCommittedIndex
@@ -630,7 +630,7 @@ public class DefaultNode implements Node, RaftServerService {
         LOG.info("发送追加日志请求, 节点[{}]日志从索引[{}]开始复制, 已应用到状态机的日志索引[{}]", peer.id(), prevLogIndex + 1, lastCommittedIndex);
         List<LogEntry> logEntries = isHeartbeat ? Collections.emptyList() : logRepository.getSuffix(prevLogIndex + 1);
         AppendEntriesRequest request = new AppendEntriesRequest(
-                Tracker.getId(),
+                Tracer.getId(),
                 configuration.getServerId(), currTerm,
                 logEntries, prevLogTerm, prevLogIndex,
                 lastCommittedIndex

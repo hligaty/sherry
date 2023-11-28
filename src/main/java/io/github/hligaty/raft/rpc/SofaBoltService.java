@@ -18,7 +18,7 @@ import io.github.hligaty.raft.rpc.packet.PeerId;
 import io.github.hligaty.raft.rpc.packet.ReadIndexRequest;
 import io.github.hligaty.raft.rpc.packet.RequestVoteRequest;
 import io.github.hligaty.raft.rpc.packet.Traceable;
-import io.github.hligaty.raft.util.Tracker;
+import io.github.hligaty.raft.util.Tracer;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -58,7 +58,7 @@ public class SofaBoltService implements RpcService {
     @Override
     public Object handleRequest(Object request) {
         if (request instanceof Traceable traceable) {
-            Tracker.start(traceable.traceId());
+            Tracer.start(traceable.traceId());
         }
         try {
             return switch (request) {
@@ -74,7 +74,7 @@ public class SofaBoltService implements RpcService {
                     throw new IllegalStateException("Unexpected value: " + request.getClass());
             };
         } finally {
-            Tracker.stop();
+            Tracer.stop();
         }
     }
 

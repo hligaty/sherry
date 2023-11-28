@@ -12,7 +12,7 @@ import io.github.hligaty.raft.rpc.packet.PeerId;
 import io.github.hligaty.raft.stateMachine.CounterStateMachine;
 import io.github.hligaty.raft.stateMachine.KVStateMachine;
 import io.github.hligaty.raft.stateMachine.RocksDBStateMachine;
-import io.github.hligaty.raft.util.Tracker;
+import io.github.hligaty.raft.util.Tracer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -183,7 +183,7 @@ public class RaftLocalClusterTest extends BaseTest {
     }
 
     static Object sendCommand(ClientRequest request) {
-        Tracker.start(request.traceId());
+        Tracer.start(request.traceId());
         try {
             List<PeerId> peerIds = new ArrayList<>(allPeerIds);
             if (leaderPort != null) { // 优先尝试刚才的集群领导者
@@ -216,7 +216,7 @@ public class RaftLocalClusterTest extends BaseTest {
             LOG.error("Failed to execute remote invoke, reason: all nodes timeout or not found cluster leader, data[{}]", request.data());
             return null;
         } finally {
-            Tracker.stop();
+            Tracer.stop();
         }
     }
 }

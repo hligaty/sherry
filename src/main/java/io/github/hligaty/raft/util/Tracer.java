@@ -4,7 +4,7 @@ import org.slf4j.MDC;
 
 import java.util.UUID;
 
-public final class Tracker {
+public final class Tracer {
     private static final String NAME = "traceId";
     
     public static void start() {
