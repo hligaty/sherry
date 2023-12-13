@@ -11,13 +11,13 @@ import io.github.hligaty.raft.rpc.packet.AppendEntriesRequest;
 import io.github.hligaty.raft.rpc.packet.AppendEntriesResponse;
 import io.github.hligaty.raft.rpc.packet.ClientRequest;
 import io.github.hligaty.raft.rpc.packet.ClientResponse;
+import io.github.hligaty.raft.rpc.packet.LogEntry;
+import io.github.hligaty.raft.rpc.packet.LogId;
 import io.github.hligaty.raft.rpc.packet.PeerId;
 import io.github.hligaty.raft.rpc.packet.ReadIndexRequest;
 import io.github.hligaty.raft.rpc.packet.ReadIndexResponse;
 import io.github.hligaty.raft.rpc.packet.RequestVoteRequest;
 import io.github.hligaty.raft.rpc.packet.RequestVoteResponse;
-import io.github.hligaty.raft.rpc.packet.LogEntry;
-import io.github.hligaty.raft.rpc.packet.LogId;
 import io.github.hligaty.raft.storage.LogRepository;
 import io.github.hligaty.raft.storage.StoreException;
 import io.github.hligaty.raft.storage.impl.LocalRaftMetaRepository;
@@ -33,8 +33,6 @@ import java.nio.file.Files;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -42,8 +40,6 @@ import java.util.concurrent.locks.ReentrantLock;
 public class DefaultNode implements Node, RaftServerService {
 
     private static final Logger LOG = LoggerFactory.getLogger(DefaultNode.class);
-
-    private static final ExecutorService threadPool = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("event-loop-thread").factory());
 
     /**
      * 配置信息
@@ -469,7 +465,7 @@ public class DefaultNode implements Node, RaftServerService {
         long oldTerm = request.preVote() ? request.term() - 1 : request.term();
         Ballot ballot = new Ballot(configuration.quorum(), processName);
         ballot.grant();
-        configuration.getPeers().forEach(peer -> threadPool.execute(() -> {
+        configuration.getPeers().forEach(peer -> Thread.startVirtualThread(() -> {
             RpcRequest rpcRequest = new RpcRequest(peer.id(), request, configuration.getElectionTimeoutMs());
             RequestVoteResponse response;
             try {

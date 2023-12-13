@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 public class RpcTest extends BaseTest {
 
     @Test
-    public void test() {
+    public void test() throws RemotingException, InterruptedException {
         String address = "localhost";
         int port = 4869;
         RpcServer rpcServer = new RpcServer(port);
@@ -42,17 +42,13 @@ public class RpcTest extends BaseTest {
         rpcServer.startup();
         RpcClient rpcClient = new RpcClient();
         rpcClient.startup();
-        try {
-            Url url = new Url(address, port);
-            url.setProtocol(RpcProtocol.PROTOCOL_CODE);
-            Object expected = "hello sherry";
-            Object actual = rpcClient.invokeSync(url, expected, 100);
-            assertEquals(expected, actual);
-            expected = 1;
-            actual = rpcClient.invokeSync(url, expected, 2);
-            assertEquals(expected, actual);
-        } catch (RemotingException | InterruptedException e) {
-            throw new RuntimeException(e);
-        }
+        Url url = new Url(address, port);
+        url.setProtocol(RpcProtocol.PROTOCOL_CODE);
+        Object expected = "hello sherry";
+        Object actual = rpcClient.invokeSync(url, expected, 100);
+        assertEquals(expected, actual);
+        expected = 1;
+        actual = rpcClient.invokeSync(url, expected, 2);
+        assertEquals(expected, actual);
     }
 }
