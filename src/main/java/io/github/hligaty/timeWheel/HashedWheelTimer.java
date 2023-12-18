@@ -16,6 +16,9 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
+/**
+ * 多层时间轮
+ */
 public class HashedWheelTimer implements Timer {
 
     private static final Logger LOG = LoggerFactory.getLogger(HashedWheelTimer.class);
@@ -67,10 +70,11 @@ public class HashedWheelTimer implements Timer {
             Iterator<HashedWheelTimeout> iterator = timeouts.iterator();
             while (iterator.hasNext()) {
                 HashedWheelTimeout timeout = iterator.next();
-                if (timeout.remainingTicks != tick) {
+                if (timeout.remainingTicks > tick) {
                     continue;
                 }
                 iterator.remove();
+                // 最好将真正执行的线程与当前线程隔离开, 当然如果是 Netty 这种响应式的话也就无所谓了
                 timeout.expire();
             }
         }
@@ -104,13 +108,18 @@ public class HashedWheelTimer implements Timer {
         }
 
         private boolean waitForNextTick() {
-            LockSupport.parkNanos(tickDuration);
+            long deadline = (tick + 1) * tickDuration;
+            long currentTime = System.nanoTime() - startTime;
+            long sleepTimeNanos = deadline - currentTime;
+            // 因为阻塞时间不准(Windows Thread.sleep(1) 最低是 10ms), 所以按照截止时间计算睡眠多久, 否则执行时间会偏差的越来越长.
+            LockSupport.parkNanos(sleepTimeNanos);
             return !Thread.interrupted();
         }
 
         private void transferTasksToBuckets() {
             HashedWheelTimeout timeout;
-            while ((timeout = tasks.poll()) != null) {
+            while ((timeout = tasks.poll()) != null) { // 不考虑转移任务耗时太长需要限制数量的问题
+                // 这里直接用轮次判断了, 隐藏了多层的概念, 相对简单点
                 timeout.remainingTicks = timeout.deadline / tickDuration;
                 // 和 Netty DefaultEventLoop 定时任务一个思路, 已经超时了要立即执行, 而不是过了一轮后才执行
                 int stopIndex = (int) (Math.max(timeout.remainingTicks, tick) % wheel.length);
@@ -141,6 +150,7 @@ public class HashedWheelTimer implements Timer {
         
         public void expire() {
             try {
+                System.out.println(remainingTicks);
                 task.run();
             } catch (Throwable throwable) {
                 LOG.info("An exception was thrown by {}.", HashedWheelTimer.class.getSimpleName(), throwable);
