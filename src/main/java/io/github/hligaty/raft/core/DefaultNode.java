@@ -420,7 +420,6 @@ public class DefaultNode implements Node, RaftServerService {
         RequestVoteRequest request;
         try {
             LogId lastLogId = logRepository.getLastLogId();
-            LOG.info("发起预投票, 预选任期:[{}], 最后的日志索引[{}]", currTerm + 1, lastLogId);
             request = new RequestVoteRequest(
                     Tracer.getId(),
                     configuration.getServerId(),
@@ -429,6 +428,7 @@ public class DefaultNode implements Node, RaftServerService {
                     lastLogId.term(),
                     true
             );
+            LOG.info("发起预投票, 预选任期:[{}], 最后的日志索引[{}]", currTerm + 1, lastLogId);
         } finally {
             lock.unlock();
         }
@@ -441,18 +441,17 @@ public class DefaultNode implements Node, RaftServerService {
         try {
             LogId lastLogId = logRepository.getLastLogId();
             state = State.CANDIDATE;
-            currTerm++;
             votedId = configuration.getServerId();
             leaderId = PeerId.emptyId();
-            LOG.info("发起正式投票, 竞选任期:[{}], 最后的日志索引[{}]", currTerm, lastLogId);
             request = new RequestVoteRequest(
                     Tracer.getId(),
                     configuration.getServerId(),
-                    currTerm,
+                    currTerm++, // 正式投票改变任期
                     lastLogId.index(),
                     lastLogId.term(),
                     false
             );
+            LOG.info("发起正式投票, 竞选任期:[{}], 最后的日志索引[{}]", currTerm, lastLogId);
         } finally {
             lock.unlock();
         }

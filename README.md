@@ -12,4 +12,4 @@
 - [EnumPropertyProcessor](src/main/java/io/github/hligaty/reflection/EnumPropertyProcessor.java) 序列化时为被标注为枚举的字段生成枚举名字字段（Annotation Processor 和 Javassit 实现），以及为 Swagger Schema 注解生成 description 和 JakartaValidation NotNull 生成 message
 - [EnumPropertyAgent](src/main/java/io/github/hligaty/reflection/EnumPropertyAgent.java) 效果同 EnumPropertyProcessor，JavaAgent 方式
 
--  [Raft](src\test\java\io\github\hligaty\raft\README.md) Raft 算法实现
+-  [Raft](src/test/java/io/github/hligaty/raft/README.md) Raft 算法实现
