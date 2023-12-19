@@ -60,20 +60,24 @@
 
 ```
 Sofa-Middleware-Log SLF4J Warn : No log util is usable, Default app logger will be used.
-set hello world
-Succeed to execute remote invoke. port[4871], leaderPort[4871], time[142]
-Please enter the clientRequest:
-get hello
-Succeed to execute remote invoke. port[4869], leaderPort[4869], time[23]
-world
-Please enter the clientRequest:
-delete hello
-Succeed to execute remote invoke. port[4871], leaderPort[4871], time[112]
-Please enter the clientRequest:
-get hello
-Succeed to execute remote invoke. port[4869], leaderPort[4869], time[6]
+set foo bar
+2023/12/19 15:11:14, 827 [cc86a8f2-ada4-4aaf-a78a-15bd4b46c635] [main] [INFO]  Succeed to execute remote invoke. port[4869], leaderPort[4869], time[267]
+Please enter the command(command execution time283):
+get foo
+2023/12/19 15:11:18, 650 [fddcca50-5d04-4c24-85a5-04915b372024] [main] [INFO]  Succeed to execute remote invoke. port[4871], leaderPort[4869], time[16]
+bar
+Please enter the command(command execution time17):
+delete foo
+2023/12/19 15:11:30, 793 [8cdc47ac-9c92-4d0c-8d53-396810ab53e7] [main] [INFO]  Succeed to execute remote invoke. port[4869], leaderPort[4869], time[132]
+Please enter the command(command execution time132):
+get foo
+2023/12/19 15:11:33, 997 [48aaf0cb-4996-42fd-b8df-e6ee9f8a5747] [main] [INFO]  Succeed to execute remote invoke. port[4869], leaderPort[4869], time[6]
 null
-Please enter the clientRequest:
+Please enter the command(command execution time6):
+get foo
+2023/12/19 15:11:46, 678 [92fcb1cc-d1ed-44c8-8c58-233b8cd62191] [main] [INFO]  Succeed to execute remote invoke. port[4872], leaderPort[4869], time[27]
+null
+Please enter the command(command execution time31):
 ```
 
 ### 计数器
