@@ -87,29 +87,31 @@ Please enter the clientRequest:
 
 ```
 Sofa-Middleware-Log SLF4J Warn : No log util is usable, Default app logger will be used.
-raft set 4870
-Please enter the clientRequest:
-Succeed to execute remote invoke. port[4869], leaderPort[4869], time[226]
 increment
+2023/12/19 14:05:03, 702 [6dfc5fc4-ae04-42fd-8fbc-b0b476e653c6] [main] [INFO]  Succeed to execute remote invoke. port[4870], leaderPort[4870], time[114]
 1
-Please enter the clientRequest:
+Please enter the command(command execution time275):
+get
+2023/12/19 14:05:07, 335 [ca8ae651-23a7-4c8f-bbcd-5e75a4e774ba] [main] [INFO]  Succeed to execute remote invoke. port[4871], leaderPort[4870], time[15]
+1
+Please enter the command(command execution time21):
+get
+2023/12/19 14:05:24, 542 [8e26e222-8982-4850-9b02-d99484f87dcf] [main] [INFO]  Succeed to execute remote invoke. port[4870], leaderPort[4870], time[6]
+1
+Please enter the command(command execution time6):
 increment
-Succeed to execute remote invoke. port[4869], leaderPort[4869], time[87]
+2023/12/19 14:05:35, 711 [3dc656f6-6b77-4562-a7bc-f5500736939a] [main] [INFO]  Succeed to execute remote invoke. port[4870], leaderPort[4870], time[83]
 2
-Please enter the clientRequest:
+Please enter the command(command execution time84):
 get
-Succeed to execute remote invoke. port[4869], leaderPort[4869], time[2]
+2023/12/19 14:05:37, 685 [b538a86b-bc08-43b7-b3b1-97ff4ca841b5] [main] [INFO]  Succeed to execute remote invoke. port[4871], leaderPort[4870], time[5]
 2
-Please enter the clientRequest:
-get
-Succeed to execute remote invoke. port[4870], leaderPort[4870], time[4]
-2
-Please enter the clientRequest:
+Please enter the command(command execution time8):
 ```
 
 ### 其他
 
-客户端出现 REPLICATION_FAIL 不代表执行失败，之后还是有可能执行成功的，可以再查一次，比如下面：
+客户端出现 REPLICATION_FAIL 不代表执行失败，之后还是有可能执行成功的(集群重新选举后还可能复制成功)，可以再查一次，比如下面：
 
 ```
 Sofa-Middleware-Log SLF4J Warn : No log util is usable, Default app logger will be used.

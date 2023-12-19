@@ -41,6 +41,8 @@ public class DefaultNode implements Node, RaftServerService {
 
     private static final Logger LOG = LoggerFactory.getLogger(DefaultNode.class);
 
+    private static final ScopedValue<Long> TERM = ScopedValue.newInstance();
+
     /**
      * 配置信息
      */
@@ -294,11 +296,11 @@ public class DefaultNode implements Node, RaftServerService {
             boolean granted = false;
             do {
                 if (request.term() < currTerm) { // 比自己的任期小, 拒绝
-                    LOG.info("收到投票请求, 拒绝[{}]. 但任期[{}]比当前节点任期[{}]小", request.serverId(), request.term(), currTerm);
+                    LOG.info("收到投票请求, 拒绝[{}]. 任期[{}]比当前节点任期[{}]小", request.serverId(), request.term(), currTerm);
                     break;
                 }
                 if (request.preVote() && isCurrentLeaderValid()) { // 预投票阶段领导者有效就拒绝. 正式投票时不判断, 因为预投票通过表示大部分节点都同意了
-                    LOG.info("收到预投票请求, 拒绝[{}]. 但领导者有效", request.serverId());
+                    LOG.info("收到预投票请求, 拒绝[{}]. 领导者有效", request.serverId());
                     break;
                 }
                 if (!request.preVote() && request.term() > currTerm) {
@@ -316,11 +318,11 @@ public class DefaultNode implements Node, RaftServerService {
                  */
                 LogId localLastLogId = logRepository.getLastLogId();
                 if (new LogId(request.lastLogTerm(), request.lastLogIndex()).compareTo(localLastLogId) < 0) {
-                    LOG.info("收到{}请求, 拒绝[{}]. 请求的日志[{}]比本地日志[{}]少", request.preVote() ? "预投票" : "正式投票",
+                    LOG.info("收到[{}]请求, 拒绝[{}]. 请求的日志[{}]比本地日志[{}]少", request.preVote() ? "预投票" : "正式投票",
                             request.serverId(), new LogId(request.lastLogTerm(), request.lastLogIndex()), localLastLogId);
                     break;
                 }
-                LOG.info("收到{}请求, 同意[{}]. 当前和对方任期[{}] [{}], 当前和对方最后日志索引[{}] [{}]", request.preVote() ? "预投票" : "正式投票",
+                LOG.info("收到[{}]请求, 同意[{}]. 当前和对方任期[{}] [{}], 当前和对方最后日志索引[{}] [{}]", request.preVote() ? "预投票" : "正式投票",
                         request.serverId(), currTerm, request.term(), localLastLogId, new LogId(request.lastLogTerm(), request.lastLogIndex()));
                 granted = true;
                 if (!request.preVote()) { // 正式投票阶段投票后更改状态为跟随者
@@ -446,7 +448,7 @@ public class DefaultNode implements Node, RaftServerService {
             request = new RequestVoteRequest(
                     Tracer.getId(),
                     configuration.getServerId(),
-                    currTerm++, // 正式投票改变任期
+                    ++currTerm, // 正式投票改变任期
                     lastLogId.index(),
                     lastLogId.term(),
                     false
@@ -479,7 +481,7 @@ public class DefaultNode implements Node, RaftServerService {
             lock.lock();
             try {
                 if (oldTerm != currTerm) {
-                    LOG.info("节点[{}][{}]投票结果: 拒绝. 任期由[{}]变更为[{}]", peer.id(), processName, oldTerm, currTerm);
+                    LOG.info("节点[{}][{}]投票结果: 取消. 任期已由[{}]变更为[{}]", peer.id(), processName, oldTerm, currTerm);
                 } else if (response.term() > request.term()) {
                     LOG.info("节点[{}][{}]投票结果: 拒绝. 任期[{}]更高. 当前节点任期:[{}]", peer.id(), processName, response.term(), request.term());
                     stepDown(response.term());
@@ -504,7 +506,7 @@ public class DefaultNode implements Node, RaftServerService {
         try {
             long oldTerm = request.preVote() ? request.term() - 1 : request.term();
             if (oldTerm != currTerm) {
-                LOG.info("取消{}投票. 任期由[{}]变更为[{}]", request.preVote() ? "预投票" : "正式投票", oldTerm, currTerm);
+                LOG.info("取消[{}]投票. 任期由[{}]变更为[{}]", request.preVote() ? "预投票" : "正式投票", oldTerm, currTerm);
                 return;
             }
             if (request.preVote()) {
@@ -592,46 +594,46 @@ public class DefaultNode implements Node, RaftServerService {
         还有 ReadIndex Read 也只发心跳就行, 保证跟随者的状态机执行到领导者已提交的日志就行,
         但这只是一个小 Demo, 所以偷个懒懒懒懒懒懒懒懒懒懒
          */
+        long oldTerm = currTerm;
         Ballot ballot = new Ballot(configuration.quorum(), "追加日志");
         ballot.grant();
-        configuration.getPeers().forEach(peer -> Thread.startVirtualThread(() -> {
+        configuration.getPeers().forEach(peer -> Thread.startVirtualThread(() -> ScopedValue.runWhere(TERM, oldTerm, () -> {
             try {
                 sendEntries(peer, isHeartbeat);
-                if (state == State.LEADER) {
-                    ballot.grant();
-                }
+                ballot.grant();
             } catch (Exception e) {
                 LOG.info("节点[{}]追加日志时发生错误, 可能出现网络分区, 当前节点任期[{}]", peer.id(), currTerm);
                 if (LOG.isDebugEnabled() || !(e instanceof RpcException)) {
                     LOG.error("出错原因如下", e);
                 }
             }
-        }));
+        })));
         if (!ballot.isGranted(configuration.getElectionTimeoutMs())) {
             LOG.info("追加日志不被大多数节点认可, 可能是网络分区, 下降为跟随者");
             stepDown(currTerm);
             return false;
         }
-        return state == State.LEADER;
+        return oldTerm == currTerm;
     }
 
     private void sendEntries(Peer peer, boolean isHeartbeat) {
-        if (state != State.LEADER) {
-            LOG.info("其他节点[{}]追加日志时发现当前节点任期[{}]已不是领导者, 结束", peer.id(), currTerm);
-            return;
-        }
+        Long term = TERM.get();
         long prevLogIndex = peer.nextIndex() - 1;
         long prevLogTerm = logRepository.getEntry(prevLogIndex).term();
         LOG.info("发送追加日志请求, 节点[{}]日志从索引[{}]开始复制, 已应用到状态机的日志索引[{}]", peer.id(), prevLogIndex + 1, lastCommittedIndex);
         List<LogEntry> logEntries = isHeartbeat ? Collections.emptyList() : logRepository.getSuffix(prevLogIndex + 1);
         AppendEntriesRequest request = new AppendEntriesRequest(
                 Tracer.getId(),
-                configuration.getServerId(), currTerm,
+                configuration.getServerId(), term,
                 logEntries, prevLogTerm, prevLogIndex,
                 lastCommittedIndex
         );
         RpcRequest rpcRequest = new RpcRequest(peer.id(), request, configuration.getHeartbeatTimeoutMs());
         AppendEntriesResponse response = (AppendEntriesResponse) rpcService.sendRequest(rpcRequest);
+        if (term != currTerm) {
+            LOG.info("追加节点[{}]的日志时发现当前节点任期由[{}]至少变更为[{}], 结束", peer.id(), term, currTerm);
+            return;
+        }
         if (response.success()) {
             long newNextIndex = logEntries.isEmpty()
                     ? peer.nextIndex()
@@ -640,7 +642,7 @@ public class DefaultNode implements Node, RaftServerService {
             peer.setNextIndex(newNextIndex);
             return;
         }
-        if (response.term() > currTerm) {
+        if (response.term() > term) {
             LOG.info("其他节点[{}]任期[{}]追加日志时, 发现当前节点任期[{}]小, 下降为跟随者", peer.id(), response.term(), currTerm);
             stepDown(response.term());
         } else {
@@ -652,23 +654,16 @@ public class DefaultNode implements Node, RaftServerService {
         }
     }
 
-    private final Lock termLock = new ReentrantLock();
-
     private void stepDown(long newTerm) {
-        state = State.FOLLOWER;
-        votedId = PeerId.emptyId();
-        leaderId = PeerId.emptyId();
-        termLock.lock();
-        try {
-            if (newTerm > currTerm) {
-                currTerm = newTerm;
-                raftMetaRepository.setTermAndVotedFor(currTerm, votedId);
-            }
-        } finally {
-            termLock.unlock();
+        if (newTerm > currTerm) {
+            LOG.info("节点状态为[{}]时任期由[{}]变更为[{}]", state, currTerm, newTerm);
+            currTerm = newTerm;
+            votedId = PeerId.emptyId();
+            raftMetaRepository.setTermAndVotedFor(currTerm, votedId);
         }
+        state = State.FOLLOWER;
+        leaderId = PeerId.emptyId();
         heartbeatTimer.stop();
-        lastLeaderTimestamp = System.currentTimeMillis();
         electionTimer.start();
     }
 

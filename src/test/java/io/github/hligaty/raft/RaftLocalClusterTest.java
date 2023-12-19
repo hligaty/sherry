@@ -140,7 +140,7 @@ public class RaftLocalClusterTest extends BaseTest {
             case "set": {
                 KVStateMachine.Set set = new KVStateMachine.Set();
                 set.key = args[1];
-                set.value = args[1];
+                set.value = args[2];
                 return sendCommand(ClientRequest.write(set));
             }
             case "get": {
