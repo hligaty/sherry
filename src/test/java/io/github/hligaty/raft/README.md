@@ -18,7 +18,7 @@
 
 ## 选择实现
 
-基于 Raft 实现了两个功能，一个是 KV 数据库 [KVStateMachine](KVStateMachine.java)，另一个是计数器 [CounterStateMachine](CounterStateMachine.java)，在类  [RaftLocalClusterTest](RaftLocalClusterTest.java) 中修改 `rocksDBStateMachine` 变量来更改(更改后记得把 Raft 节点的所有数据删掉)。
+基于 Raft 实现了两个功能，一个是 KV 数据库 [KVStateMachine](stateMachine/KVStateMachine.java)，另一个是计数器 [CounterStateMachine](stateMachine/CounterStateMachine.java)，在类  [RaftLocalClusterTest](https://github.com/hligaty/sherry/blob/bd06fe8428efd9d9ef0d4b4ff0876583db201e2e/src/test/java/io/github/hligaty/raft/RaftLocalClusterTest.java#L43) 中修改 `rocksDBStateMachine` 变量来更改(更改后记得把 Raft 节点的所有数据删掉)。
 
 ## 启动服务端
 
