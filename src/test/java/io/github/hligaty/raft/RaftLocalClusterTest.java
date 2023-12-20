@@ -39,8 +39,8 @@ public class RaftLocalClusterTest extends BaseTest {
             .map(port -> new PeerId("localhost", port))
             .toList();
 
-//    private static final RocksDBStateMachine rocksDBStateMachine = new CounterStateMachine();
-    private static final RocksDBStateMachine rocksDBStateMachine = new KVStateMachine();
+    private static final RocksDBStateMachine rocksDBStateMachine = new CounterStateMachine();
+//    private static final RocksDBStateMachine rocksDBStateMachine = new KVStateMachine();
 
     // ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑  配置  ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
 

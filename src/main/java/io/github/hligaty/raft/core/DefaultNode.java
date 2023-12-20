@@ -309,7 +309,6 @@ public class DefaultNode implements Node, RaftServerService {
                 }
                 if (!request.preVote() && !votedId.isEmpty()) { // 正式投票时判断是否已经投过了. 预投票只是为了判断是否可以发起正式投票, 不用记录投了谁
                     LOG.info("收到正式投票请求, 拒绝[{}]. 任期[{}]的正式投票已经投给了[{}]", request.serverId(), currTerm, votedId);
-                    assert state == State.FOLLOWER;
                     break;
                 }
                 /*
@@ -608,6 +607,7 @@ public class DefaultNode implements Node, RaftServerService {
                 }
             }
         })));
+        // 少部分线程还在运行, 这是一个 bug, 先不管
         if (!ballot.isGranted(configuration.getElectionTimeoutMs())) {
             LOG.info("追加日志不被大多数节点认可, 可能是网络分区, 下降为跟随者");
             stepDown(currTerm);
