@@ -150,7 +150,6 @@ public class HashedWheelTimer implements Timer {
         
         public void expire() {
             try {
-                System.out.println(remainingTicks);
                 task.run();
             } catch (Throwable throwable) {
                 LOG.info("An exception was thrown by {}.", HashedWheelTimer.class.getSimpleName(), throwable);
